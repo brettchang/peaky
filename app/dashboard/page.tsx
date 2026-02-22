@@ -1,0 +1,32 @@
+import { Metadata } from "next";
+import { getAllCampaignsWithClients } from "@/lib/db";
+import { DashboardTable } from "@/components/DashboardTable";
+import { CreateCampaignForm } from "@/components/CreateCampaignForm";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Dashboard — Peak Client Portal",
+};
+
+export default async function DashboardPage() {
+  const data = await getAllCampaignsWithClients();
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Campaign Dashboard
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {data.length} campaign{data.length !== 1 && "s"}
+          </p>
+        </div>
+        <CreateCampaignForm />
+      </div>
+      <DashboardTable data={data} baseUrl={baseUrl} />
+    </div>
+  );
+}
