@@ -81,8 +81,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stats = extractStats(result.post, result.clickEntry);
-    await syncPlacementBeehiivStats(placementId, result.post.id, stats);
+    // Re-fetch the post by ID to get full stats (list endpoint may omit opens/recipients)
+    const fullPost = await fetchPostById(result.post.id);
+    const post = fullPost ?? result.post;
+
+    // Re-find the click entry in the full post's stats
+    let clickEntry = result.clickEntry;
+    if (fullPost?.stats?.clicks && placement.linkToPlacement) {
+      const normalizedLink = normalizeUrl(placement.linkToPlacement);
+      clickEntry =
+        fullPost.stats.clicks.find(
+          (c) => normalizeUrl(c.base_url) === normalizedLink
+        ) ?? result.clickEntry;
+    }
+
+    const stats = extractStats(post, clickEntry);
+    await syncPlacementBeehiivStats(placementId, post.id, stats);
 
     revalidatePath("/dashboard", "layout");
     return NextResponse.json({ success: true, postId: result.post.id });
