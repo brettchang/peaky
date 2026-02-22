@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import Link from "next/link";
 import { getAllCampaignsWithClients } from "@/lib/db";
 import { DashboardTable } from "@/components/DashboardTable";
 import { CreateCampaignForm } from "@/components/CreateCampaignForm";
@@ -24,7 +25,15 @@ export default async function DashboardPage() {
             {data.length} campaign{data.length !== 1 && "s"}
           </p>
         </div>
-        <CreateCampaignForm />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard/invoicing"
+            className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            View Invoicing
+          </Link>
+          <CreateCampaignForm />
+        </div>
       </div>
       <DashboardTable data={data} baseUrl={baseUrl} />
     </div>

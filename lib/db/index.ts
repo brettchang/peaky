@@ -15,6 +15,8 @@ export {
   getPlacementPageData,
   getClientByCampaignId,
   getAllClients,
+  getCampaignInvoiceLinks,
+  getAllInvoiceLinks,
 } from "./queries";
 
 export {

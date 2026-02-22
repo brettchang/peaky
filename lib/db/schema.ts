@@ -58,6 +58,7 @@ export const campaignsRelations = relations(campaigns, ({ one, many }) => ({
   placements: many(placements),
   onboardingRounds: many(onboardingRounds),
   billingOnboarding: one(billingOnboarding),
+  campaignInvoices: many(campaignInvoices),
 }));
 
 // ─── Placements ──────────────────────────────────────────────
@@ -186,6 +187,51 @@ export const billingOnboardingRelations = relations(
   ({ one }) => ({
     campaign: one(campaigns, {
       fields: [billingOnboarding.campaignId],
+      references: [campaigns.id],
+    }),
+  })
+);
+
+// ─── Xero Connections ──────────────────────────────────────
+
+export const xeroConnections = pgTable("xero_connections", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  tenantName: text("tenant_name").notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
+// ─── Campaign Invoices (join table) ────────────────────────
+
+export const campaignInvoices = pgTable(
+  "campaign_invoices",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    xeroInvoiceId: text("xero_invoice_id").notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull(),
+    notes: text("notes"),
+  },
+  (t) => [
+    uniqueIndex("campaign_invoices_campaign_invoice_idx").on(
+      t.campaignId,
+      t.xeroInvoiceId
+    ),
+    index("campaign_invoices_campaign_id_idx").on(t.campaignId),
+  ]
+);
+
+export const campaignInvoicesRelations = relations(
+  campaignInvoices,
+  ({ one }) => ({
+    campaign: one(campaigns, {
+      fields: [campaignInvoices.campaignId],
       references: [campaigns.id],
     }),
   })

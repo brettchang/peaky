@@ -1,12 +1,14 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCampaignById, getClientByCampaignId } from "@/lib/db";
+import { getCampaignById, getClientByCampaignId, getCampaignInvoiceLinks } from "@/lib/db";
+import { isXeroConnected } from "@/lib/xero";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdminPlacementList } from "@/components/AdminPlacementList";
 import { OnboardingStatus } from "@/components/OnboardingStatus";
 import { AdLineItems } from "@/components/AdLineItems";
 import { BillingDetails } from "@/components/BillingDetails";
+import { CampaignInvoiceSection } from "@/components/CampaignInvoiceSection";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +25,11 @@ export default async function CampaignDetailPage({
   const campaign = await getCampaignById(campaignId);
   if (!campaign) notFound();
 
-  const client = await getClientByCampaignId(campaignId);
+  const [client, xeroStatus, invoiceLinks] = await Promise.all([
+    getClientByCampaignId(campaignId),
+    isXeroConnected(),
+    getCampaignInvoiceLinks(campaignId),
+  ]);
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
   const portalUrl = client
     ? `${baseUrl}/portal/${client.portalId}`
@@ -105,6 +111,14 @@ export default async function CampaignDetailPage({
       {/* Billing Details */}
       {campaign.billingOnboarding?.complete && (
         <BillingDetails billing={campaign.billingOnboarding} />
+      )}
+
+      {/* Xero Invoices */}
+      {xeroStatus.connected && (
+        <CampaignInvoiceSection
+          campaignId={campaign.id}
+          invoiceLinks={invoiceLinks}
+        />
       )}
 
       {/* Ad Line Items */}

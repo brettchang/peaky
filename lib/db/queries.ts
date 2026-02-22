@@ -19,6 +19,8 @@ import type {
   PerformanceStats,
   InvoiceCadence,
 } from "../types";
+import type { CampaignInvoiceLink } from "../xero-types";
+import { getXeroConnection, fetchXeroInvoice } from "../xero";
 
 // ─── Mapper helpers ──────────────────────────────────────────
 // Convert DB rows (Date objects, nulls) to app types (ISO strings, undefineds)
@@ -96,6 +98,7 @@ type CampaignRelational = typeof schema.campaigns.$inferSelect & {
   })[];
   onboardingRounds: (typeof schema.onboardingRounds.$inferSelect)[];
   billingOnboarding: typeof schema.billingOnboarding.$inferSelect | null;
+  campaignInvoices?: (typeof schema.campaignInvoices.$inferSelect)[];
 };
 
 function mapCampaign(row: CampaignRelational): Campaign {
@@ -176,6 +179,7 @@ export async function getCampaignById(
       },
       onboardingRounds: true,
       billingOnboarding: true,
+      campaignInvoices: true,
     },
   });
   if (!row) return null;
@@ -339,4 +343,90 @@ export async function getAllClients(): Promise<Client[]> {
     results.push(mapClient(row, campaignIds));
   }
   return results;
+}
+
+// ─── Xero invoice queries ───────────────────────────────────
+
+export async function getCampaignInvoiceLinks(
+  campaignId: string
+): Promise<CampaignInvoiceLink[]> {
+  const rows = await db.query.campaignInvoices.findMany({
+    where: eq(schema.campaignInvoices.campaignId, campaignId),
+  });
+
+  const conn = await getXeroConnection();
+  const links: CampaignInvoiceLink[] = [];
+
+  for (const row of rows) {
+    const link: CampaignInvoiceLink = {
+      id: row.id,
+      campaignId: row.campaignId,
+      xeroInvoiceId: row.xeroInvoiceId,
+      linkedAt: row.linkedAt.toISOString(),
+      notes: row.notes ?? undefined,
+    };
+
+    if (conn) {
+      const invoice = await fetchXeroInvoice(
+        conn.tenantId,
+        conn.accessToken,
+        row.xeroInvoiceId
+      );
+      if (invoice) link.invoice = invoice;
+    }
+
+    links.push(link);
+  }
+
+  return links;
+}
+
+export interface InvoiceLinkWithCampaign extends CampaignInvoiceLink {
+  campaignName: string;
+  clientName: string;
+}
+
+export async function getAllInvoiceLinks(): Promise<InvoiceLinkWithCampaign[]> {
+  const rows = await db.query.campaignInvoices.findMany({
+    with: {
+      campaign: {
+        with: { client: true },
+      },
+    },
+  });
+
+  type RowWithCampaign = (typeof rows)[number] & {
+    campaign: typeof schema.campaigns.$inferSelect & {
+      client: typeof schema.clients.$inferSelect;
+    };
+  };
+
+  const conn = await getXeroConnection();
+  const links: InvoiceLinkWithCampaign[] = [];
+
+  for (const row of rows) {
+    const r = row as RowWithCampaign;
+    const link: InvoiceLinkWithCampaign = {
+      id: r.id,
+      campaignId: r.campaignId,
+      xeroInvoiceId: r.xeroInvoiceId,
+      linkedAt: r.linkedAt.toISOString(),
+      notes: r.notes ?? undefined,
+      campaignName: r.campaign?.name ?? "",
+      clientName: r.campaign?.client?.name ?? "",
+    };
+
+    if (conn) {
+      const invoice = await fetchXeroInvoice(
+        conn.tenantId,
+        conn.accessToken,
+        row.xeroInvoiceId
+      );
+      if (invoice) link.invoice = invoice;
+    }
+
+    links.push(link);
+  }
+
+  return links;
 }
