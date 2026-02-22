@@ -3,8 +3,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Placement, OnboardingRound } from "@/lib/types";
-import { StatusBadge } from "@/components/StatusBadge";
+import { Placement, OnboardingRound, PlacementStatus } from "@/lib/types";
 import { AddPlacementForm } from "@/components/AddPlacementForm";
 import { CopyEditor } from "@/components/CopyEditor";
 
@@ -67,6 +66,22 @@ export function AdminPlacementList({
     }
   }
 
+  async function handleStatusChange(placementId: string, status: string) {
+    setUpdatingId(placementId);
+    try {
+      const res = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, placementId, status }),
+      });
+      if (res.ok) {
+        router.refresh();
+      }
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   async function handleDateChange(placementId: string, value: string) {
     setUpdatingId(placementId);
     try {
@@ -121,7 +136,32 @@ export function AdminPlacementList({
                     >
                       {placement.name}
                     </Link>
-                    <StatusBadge status={placement.status} />
+                    <select
+                      value={placement.status}
+                      disabled={updatingId === placement.id}
+                      onChange={(e) =>
+                        handleStatusChange(placement.id, e.target.value)
+                      }
+                      className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 disabled:opacity-50"
+                    >
+                      {([
+                        "New Campaign",
+                        "Onboarding Requested",
+                        "Copywriting in Progress",
+                        "Peak Team Review Complete",
+                        "Sent for Approval",
+                        "Approved",
+                        "Debrief Needed",
+                        "Send Debrief",
+                        "Client Missed Placement",
+                        "Hold",
+                        "Done",
+                      ] as PlacementStatus[]).map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="mt-1 flex gap-4 text-sm text-gray-500">
                     <span>{placement.type}</span>

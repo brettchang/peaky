@@ -131,14 +131,26 @@ export function OnboardingStatus({
                   </p>
                 </div>
               </div>
-              {!round.complete && (
-                <button
-                  onClick={() => handleCopy(round.id, round.filloutLink)}
-                  className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
-                >
-                  {copiedId === round.id ? "Copied!" : "Copy Fillout Link"}
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {round.complete && (
+                  <a
+                    href={round.onboardingDocUrl || round.filloutLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
+                  >
+                    View Responses
+                  </a>
+                )}
+                {!round.complete && (
+                  <button
+                    onClick={() => handleCopy(round.id, round.filloutLink)}
+                    className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                  >
+                    {copiedId === round.id ? "Copied!" : "Copy Fillout Link"}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Linked placements */}
