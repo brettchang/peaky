@@ -3,6 +3,10 @@ import { PerformanceStats as Stats } from "@/lib/types";
 export function PerformanceStats({ stats }: { stats: Stats }) {
   const rows: { label: string; value: string }[] = [];
 
+  if (stats.totalSends != null)
+    rows.push({ label: "Total Sends", value: stats.totalSends.toLocaleString() });
+  if (stats.openRate != null)
+    rows.push({ label: "Open Rate", value: `${stats.openRate}%` });
   if (stats.totalOpens != null)
     rows.push({ label: "Total Newsletter Opens", value: stats.totalOpens.toLocaleString() });
   if (stats.uniqueOpens != null)
@@ -11,6 +15,8 @@ export function PerformanceStats({ stats }: { stats: Stats }) {
     rows.push({ label: "Total Clicks", value: stats.totalClicks.toLocaleString() });
   if (stats.uniqueClicks != null)
     rows.push({ label: "Unique Clicks", value: stats.uniqueClicks.toLocaleString() });
+  if (stats.ctr != null)
+    rows.push({ label: "CTR", value: `${stats.ctr}%` });
 
   if (rows.length === 0) return null;
 

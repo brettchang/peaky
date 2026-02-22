@@ -482,9 +482,108 @@ export function AdminPlacementDetail({
         </div>
       )}
 
-      {/* Performance stats */}
+      {/* Beehiiv Stats */}
+      <BeehiivStatsCard campaignId={campaignId} placement={placement} />
+    </div>
+  );
+}
+
+// ─── Beehiiv Stats Card ─────────────────────────────────────
+
+function BeehiivStatsCard({
+  campaignId,
+  placement,
+}: {
+  campaignId: string;
+  placement: Placement;
+}) {
+  const router = useRouter();
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+
+  const hasPostId = !!placement.beehiivPostId;
+  const hasLink = !!placement.linkToPlacement;
+  const canSync = hasPostId || hasLink;
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncError(null);
+    setSyncSuccess(false);
+    try {
+      const res = await fetch("/api/sync-beehiiv-stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId: placement.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncError(data.error ?? "Failed to sync stats");
+      } else {
+        setSyncSuccess(true);
+        router.refresh();
+      }
+    } catch {
+      setSyncError("Network error — could not reach the server");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const buttonLabel = syncing
+    ? "Syncing..."
+    : hasPostId
+      ? "Re-sync Stats"
+      : "Sync Stats";
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">Beehiiv Stats</h3>
+        <button
+          onClick={handleSync}
+          disabled={syncing || !canSync}
+          className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        >
+          {buttonLabel}
+        </button>
+      </div>
+
+      {hasPostId && (
+        <p className="mb-3 text-xs text-gray-500">
+          Post ID:{" "}
+          <span className="font-mono text-gray-700">
+            {placement.beehiivPostId}
+          </span>
+        </p>
+      )}
+
+      {!canSync && (
+        <p className="text-xs text-gray-400">
+          Add a link to placement or a Beehiiv post ID to enable syncing.
+        </p>
+      )}
+
+      {syncError && (
+        <p className="mb-3 text-xs text-red-600">{syncError}</p>
+      )}
+      {syncSuccess && (
+        <p className="mb-3 text-xs text-green-600">Stats synced successfully.</p>
+      )}
+
       {placement.stats && (
-        <div className="grid grid-cols-4 gap-4 rounded-lg border border-gray-200 bg-white px-6 py-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {placement.stats.totalSends != null && (
+            <div>
+              <p className="text-xs text-gray-500">Total Sends</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {placement.stats.totalSends.toLocaleString()}
+              </p>
+            </div>
+          )}
           {placement.stats.openRate != null && (
             <div>
               <p className="text-xs text-gray-500">Open Rate</p>
@@ -493,11 +592,27 @@ export function AdminPlacementDetail({
               </p>
             </div>
           )}
-          {placement.stats.ctr != null && (
+          {placement.stats.totalOpens != null && (
             <div>
-              <p className="text-xs text-gray-500">CTR</p>
+              <p className="text-xs text-gray-500">Total Opens</p>
               <p className="text-sm font-semibold text-gray-900">
-                {placement.stats.ctr}%
+                {placement.stats.totalOpens.toLocaleString()}
+              </p>
+            </div>
+          )}
+          {placement.stats.uniqueOpens != null && (
+            <div>
+              <p className="text-xs text-gray-500">Unique Opens</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {placement.stats.uniqueOpens.toLocaleString()}
+              </p>
+            </div>
+          )}
+          {placement.stats.totalClicks != null && (
+            <div>
+              <p className="text-xs text-gray-500">Total Clicks</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {placement.stats.totalClicks.toLocaleString()}
               </p>
             </div>
           )}
@@ -509,11 +624,11 @@ export function AdminPlacementDetail({
               </p>
             </div>
           )}
-          {placement.stats.totalSends != null && (
+          {placement.stats.ctr != null && (
             <div>
-              <p className="text-xs text-gray-500">Total Sends</p>
+              <p className="text-xs text-gray-500">CTR</p>
               <p className="text-sm font-semibold text-gray-900">
-                {placement.stats.totalSends.toLocaleString()}
+                {placement.stats.ctr}%
               </p>
             </div>
           )}

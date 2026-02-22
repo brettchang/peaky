@@ -13,6 +13,7 @@ import type {
   PlacementType,
   Publication,
   CampaignStatus,
+  PerformanceStats,
 } from "../types";
 import { getCampaignById, getPlacement } from "./queries";
 
@@ -440,6 +441,18 @@ export async function updatePlacementMetadata(
         eq(schema.placements.campaignId, campaignId)
       )
     );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function syncPlacementBeehiivStats(
+  placementId: string,
+  beehiivPostId: string,
+  stats: PerformanceStats
+): Promise<boolean> {
+  const result = await db
+    .update(schema.placements)
+    .set({ beehiivPostId, stats })
+    .where(eq(schema.placements.id, placementId));
   return (result.rowCount ?? 0) > 0;
 }
 

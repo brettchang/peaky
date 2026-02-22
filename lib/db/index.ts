@@ -35,4 +35,5 @@ export {
   updatePlacementLink,
   updateCampaignMetadata,
   updatePlacementMetadata,
+  syncPlacementBeehiivStats,
 } from "./mutations";
