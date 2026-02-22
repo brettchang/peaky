@@ -31,4 +31,8 @@ export {
   updateAdLineItems,
   addPlacement,
   publishPlacementToBeehiiv,
+  updatePlacementOnboardingRound,
+  updatePlacementLink,
+  updateCampaignMetadata,
+  updatePlacementMetadata,
 } from "./mutations";

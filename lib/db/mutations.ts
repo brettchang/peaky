@@ -109,6 +109,23 @@ export async function updatePlacementScheduledDate(
   return (result.rowCount ?? 0) > 0;
 }
 
+export async function updatePlacementLink(
+  campaignId: string,
+  placementId: string,
+  linkToPlacement: string
+): Promise<boolean> {
+  const result = await db
+    .update(schema.placements)
+    .set({ linkToPlacement })
+    .where(
+      and(
+        eq(schema.placements.id, placementId),
+        eq(schema.placements.campaignId, campaignId)
+      )
+    );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export function createOnboardingRound(
   campaignId: string,
   label?: string
@@ -360,6 +377,70 @@ export async function publishPlacementToBeehiiv(
     .where(eq(schema.placements.id, placementId));
 
   return { beehiivPostId };
+}
+
+export async function updatePlacementOnboardingRound(
+  campaignId: string,
+  placementId: string,
+  onboardingRoundId: string | null
+): Promise<boolean> {
+  const result = await db
+    .update(schema.placements)
+    .set({ onboardingRoundId })
+    .where(
+      and(
+        eq(schema.placements.id, placementId),
+        eq(schema.placements.campaignId, campaignId)
+      )
+    );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function updateCampaignMetadata(
+  campaignId: string,
+  data: {
+    name?: string;
+    status?: CampaignStatus;
+    campaignManager?: string | null;
+    contactName?: string | null;
+    contactEmail?: string | null;
+    notes?: string | null;
+  }
+): Promise<boolean> {
+  const result = await db
+    .update(schema.campaigns)
+    .set(data)
+    .where(eq(schema.campaigns.id, campaignId));
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function updatePlacementMetadata(
+  campaignId: string,
+  placementId: string,
+  data: {
+    name?: string;
+    type?: PlacementType;
+    publication?: Publication;
+    scheduledDate?: string | null;
+    status?: PlacementStatus;
+    copyProducer?: "Us" | "Client" | null;
+    notes?: string | null;
+    linkToPlacement?: string | null;
+    conflictPreference?: "Defer if conflict" | "Date is crucial" | null;
+    imageUrl?: string | null;
+    logoUrl?: string | null;
+  }
+): Promise<boolean> {
+  const result = await db
+    .update(schema.placements)
+    .set(data)
+    .where(
+      and(
+        eq(schema.placements.id, placementId),
+        eq(schema.placements.campaignId, campaignId)
+      )
+    );
+  return (result.rowCount ?? 0) > 0;
 }
 
 // ─── Internal helpers ────────────────────────────────────────

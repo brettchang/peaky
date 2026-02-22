@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Placement, OnboardingRound } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AddPlacementForm } from "@/components/AddPlacementForm";
@@ -114,9 +115,12 @@ export function AdminPlacementList({
               <div className="flex items-center justify-between px-5 py-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3">
-                    <span className="font-medium text-gray-900">
+                    <Link
+                      href={`/dashboard/${campaignId}/${placement.id}`}
+                      className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                    >
                       {placement.name}
-                    </span>
+                    </Link>
                     <StatusBadge status={placement.status} />
                   </div>
                   <div className="mt-1 flex gap-4 text-sm text-gray-500">

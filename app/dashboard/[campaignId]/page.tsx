@@ -9,6 +9,7 @@ import { OnboardingStatus } from "@/components/OnboardingStatus";
 import { AdLineItems } from "@/components/AdLineItems";
 import { BillingDetails } from "@/components/BillingDetails";
 import { CampaignInvoiceSection } from "@/components/CampaignInvoiceSection";
+import { CampaignMetadataEditor } from "@/components/CampaignMetadataEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -56,56 +57,33 @@ export default async function CampaignDetailPage({
       </div>
 
       {/* Metadata grid */}
-      <div className="mb-8 grid grid-cols-2 gap-x-8 gap-y-4 rounded-lg border border-gray-200 bg-white px-6 py-5 sm:grid-cols-3">
-        {campaign.campaignManager && (
-          <div>
-            <p className="text-xs text-gray-500">Campaign Manager</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.campaignManager}
-            </p>
-          </div>
-        )}
-        {campaign.contactName && (
-          <div>
-            <p className="text-xs text-gray-500">Contact</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.contactName}
-            </p>
-          </div>
-        )}
-        {campaign.contactEmail && (
-          <div>
-            <p className="text-xs text-gray-500">Email</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.contactEmail}
-            </p>
-          </div>
-        )}
-        <div>
-          <p className="text-xs text-gray-500">Placements</p>
-          <p className="text-sm font-medium text-gray-900">
-            {campaign.placements.length}
-          </p>
-        </div>
-        {campaign.billingOnboarding?.complete && campaign.billingOnboarding.invoiceCadence && (
-          <div>
-            <p className="text-xs text-gray-500">Invoice Cadence</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.billingOnboarding.invoiceCadence.type === "lump-sum"
+      <CampaignMetadataEditor
+        campaignId={campaign.id}
+        campaign={{
+          name: campaign.name,
+          status: campaign.status,
+          campaignManager: campaign.campaignManager,
+          contactName: campaign.contactName,
+          contactEmail: campaign.contactEmail,
+          notes: campaign.notes,
+          placementCount: campaign.placements.length,
+          invoiceCadenceLabel:
+            campaign.billingOnboarding?.complete && campaign.billingOnboarding.invoiceCadence
+              ? campaign.billingOnboarding.invoiceCadence.type === "lump-sum"
                 ? `Lump Sum (${campaign.billingOnboarding.invoiceCadence.paymentTerms})`
                 : campaign.billingOnboarding.invoiceCadence.type === "equal-monthly"
                 ? "Equal Monthly"
-                : "Per-Month Usage"}
-            </p>
-          </div>
-        )}
-      </div>
+                : "Per-Month Usage"
+              : undefined,
+        }}
+      />
 
       {/* Onboarding */}
       <OnboardingStatus
         rounds={campaign.onboardingRounds}
         campaignId={campaign.id}
         billingOnboarding={campaign.billingOnboarding}
+        placements={campaign.placements}
       />
 
       {/* Billing Details */}

@@ -63,41 +63,64 @@ function extractBillingFields(questions: FilloutQuestion[]): {
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  // Fillout sends form submissions with a `questions` array containing URL parameters.
-  // The campaign_id and round_id are passed as URL parameters on the form link.
-  // Fillout webhook payload structure: { questions: [...], urlParameters: [...] }
+  // Log the full payload to diagnose Fillout's format
+  console.log("Fillout webhook payload:", JSON.stringify(body, null, 2));
+
+  // Helper: search an array of {key, value} or {name, value} or {id, value} objects
+  function findInArray(arr: unknown[], key: string): string | undefined {
+    if (!Array.isArray(arr)) return undefined;
+    for (const item of arr) {
+      if (item && typeof item === "object") {
+        const obj = item as Record<string, unknown>;
+        // Match by key, name, or id
+        if (
+          (obj.key === key || obj.name === key || obj.id === key) &&
+          obj.value != null
+        ) {
+          return String(obj.value);
+        }
+      }
+    }
+    return undefined;
+  }
+
   let campaignId: string | undefined;
   let roundId: string | undefined;
   let formType: string | undefined;
 
-  // Check urlParameters array (Fillout's standard format)
+  // 1. Check urlParameters array
   if (Array.isArray(body.urlParameters)) {
-    const campaignParam = body.urlParameters.find(
-      (p: { key?: string; value?: string }) => p.key === "campaign_id"
-    );
-    if (campaignParam?.value) campaignId = campaignParam.value;
-
-    const roundParam = body.urlParameters.find(
-      (p: { key?: string; value?: string }) => p.key === "round_id"
-    );
-    if (roundParam?.value) roundId = roundParam.value;
-
-    const formTypeParam = body.urlParameters.find(
-      (p: { key?: string; value?: string }) => p.key === "form_type"
-    );
-    if (formTypeParam?.value) formType = formTypeParam.value;
+    campaignId = findInArray(body.urlParameters, "campaign_id");
+    roundId = findInArray(body.urlParameters, "round_id");
+    formType = findInArray(body.urlParameters, "form_type");
   }
 
-  // Fallback: check top-level fields
-  if (!campaignId && body.campaign_id) {
-    campaignId = body.campaign_id;
+  // 2. Check questions array (Fillout may include URL params as hidden fields)
+  if (!campaignId && Array.isArray(body.questions)) {
+    campaignId = campaignId || findInArray(body.questions, "campaign_id");
+    roundId = roundId || findInArray(body.questions, "round_id");
+    formType = formType || findInArray(body.questions, "form_type");
   }
-  if (!roundId && body.round_id) {
-    roundId = body.round_id;
+
+  // 3. Check submission.questions (some Fillout payloads nest under submission)
+  if (!campaignId && body.submission) {
+    const sub = body.submission;
+    if (Array.isArray(sub.urlParameters)) {
+      campaignId = campaignId || findInArray(sub.urlParameters, "campaign_id");
+      roundId = roundId || findInArray(sub.urlParameters, "round_id");
+      formType = formType || findInArray(sub.urlParameters, "form_type");
+    }
+    if (Array.isArray(sub.questions)) {
+      campaignId = campaignId || findInArray(sub.questions, "campaign_id");
+      roundId = roundId || findInArray(sub.questions, "round_id");
+      formType = formType || findInArray(sub.questions, "form_type");
+    }
   }
-  if (!formType && body.form_type) {
-    formType = body.form_type;
-  }
+
+  // 4. Fallback: check top-level fields
+  if (!campaignId) campaignId = body.campaign_id ? String(body.campaign_id) : undefined;
+  if (!roundId) roundId = body.round_id ? String(body.round_id) : undefined;
+  if (!formType) formType = body.form_type ? String(body.form_type) : undefined;
 
   if (!campaignId) {
     return NextResponse.json(
