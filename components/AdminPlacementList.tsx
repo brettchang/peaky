@@ -381,19 +381,27 @@ export function AdminPlacementList({
                         </span>
                       </span>
                     )}
+                    {placement.stats.totalOpens != null && (
+                      <span className="text-xs text-gray-500">
+                        Total Opens:{" "}
+                        <span className="font-semibold text-gray-900">
+                          {placement.stats.totalOpens.toLocaleString()}
+                        </span>
+                      </span>
+                    )}
+                    {placement.stats.uniqueOpens != null && (
+                      <span className="text-xs text-gray-500">
+                        Unique Opens:{" "}
+                        <span className="font-semibold text-gray-900">
+                          {placement.stats.uniqueOpens.toLocaleString()}
+                        </span>
+                      </span>
+                    )}
                     {placement.stats.uniqueClicks != null && (
                       <span className="text-xs text-gray-500">
                         Clicks:{" "}
                         <span className="font-semibold text-gray-900">
                           {placement.stats.uniqueClicks.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                    {placement.stats.ctr != null && (
-                      <span className="text-xs text-gray-500">
-                        CTR:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.ctr}%
                         </span>
                       </span>
                     )}

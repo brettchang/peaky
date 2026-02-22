@@ -180,8 +180,6 @@ export function extractStats(
       stats.totalClicks = clickEntry.total_clicks;
     if (clickEntry.total_unique_clicks != null)
       stats.uniqueClicks = clickEntry.total_unique_clicks;
-    if (clickEntry.total_click_through_rate != null)
-      stats.ctr = normalizeRate(clickEntry.total_click_through_rate);
   }
 
   return stats;

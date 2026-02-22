@@ -624,14 +624,6 @@ function BeehiivStatsCard({
               </p>
             </div>
           )}
-          {placement.stats.ctr != null && (
-            <div>
-              <p className="text-xs text-gray-500">CTR</p>
-              <p className="text-sm font-semibold text-gray-900">
-                {placement.stats.ctr}%
-              </p>
-            </div>
-          )}
         </div>
       )}
     </div>

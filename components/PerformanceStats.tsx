@@ -15,8 +15,6 @@ export function PerformanceStats({ stats }: { stats: Stats }) {
     rows.push({ label: "Total Clicks", value: stats.totalClicks.toLocaleString() });
   if (stats.uniqueClicks != null)
     rows.push({ label: "Unique Clicks", value: stats.uniqueClicks.toLocaleString() });
-  if (stats.ctr != null)
-    rows.push({ label: "CTR", value: `${stats.ctr}%` });
 
   if (rows.length === 0) return null;
 
