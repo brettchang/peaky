@@ -25,6 +25,7 @@ export function normalizeUrl(url: string): string {
     .toLowerCase()
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
+    .replace(/[?#].*$/, "")
     .replace(/\/+$/, "");
 }
 
