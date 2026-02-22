@@ -6,15 +6,23 @@ import {
   getPlacement,
   updatePlacementStatus,
   updatePlacementCopy,
+  updatePlacementLink,
 } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { campaignId, placementId, clientId } = body;
+  const { campaignId, placementId, clientId, linkToPlacement } = body;
 
   if (!campaignId || !placementId || !clientId) {
     return NextResponse.json(
       { error: "campaignId, placementId, and clientId are required" },
+      { status: 400 }
+    );
+  }
+
+  if (!linkToPlacement) {
+    return NextResponse.json(
+      { error: "linkToPlacement is required" },
       { status: 400 }
     );
   }
@@ -73,6 +81,8 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+  await updatePlacementLink(campaignId, placementId, linkToPlacement);
 
   revalidatePath("/dashboard", "layout");
   return NextResponse.json({ success: true });

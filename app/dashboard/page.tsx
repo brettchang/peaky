@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { getAllCampaignsWithClients } from "@/lib/db";
-import { DashboardTable } from "@/components/DashboardTable";
+import { DashboardViewToggle } from "@/components/DashboardViewToggle";
 import { CreateCampaignForm } from "@/components/CreateCampaignForm";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export default async function DashboardPage() {
           <CreateCampaignForm />
         </div>
       </div>
-      <DashboardTable data={data} baseUrl={baseUrl} />
+      <DashboardViewToggle data={data} baseUrl={baseUrl} />
     </div>
   );
 }

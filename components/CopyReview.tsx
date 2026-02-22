@@ -23,6 +23,9 @@ export function CopyReview({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editedCopy, setEditedCopy] = useState(placement.currentCopy);
+  const [placementLink, setPlacementLink] = useState(
+    placement.linkToPlacement ?? ""
+  );
 
   const displayStatus = getClientDisplayStatus(placement.status);
   const hasEdits = editedCopy !== placement.currentCopy;
@@ -42,6 +45,7 @@ export function CopyReview({
           campaignId,
           placementId: placement.id,
           clientId: clientPortalId,
+          linkToPlacement: placementLink,
           ...(hasEdits && { editedCopy }),
         }),
       });
@@ -119,10 +123,26 @@ export function CopyReview({
               {error}
             </div>
           )}
+          <div className="space-y-2">
+            <label
+              htmlFor={`placement-link-${placement.id}`}
+              className="block text-sm font-medium text-gray-700"
+            >
+              What link should we use for this placement?
+            </label>
+            <input
+              id={`placement-link-${placement.id}`}
+              type="url"
+              value={placementLink}
+              onChange={(e) => setPlacementLink(e.target.value)}
+              placeholder="https://example.com/landing-page"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
           <div className="flex gap-3">
             <button
               onClick={handleApprove}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !placementLink.trim()}
               className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
               {isSubmitting ? "Approving..." : "Approve Copy"}
