@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, gte, lte, isNotNull } from "drizzle-orm";
 import { db } from "./index";
 import * as schema from "./schema";
 import type {
@@ -18,8 +18,12 @@ import type {
   AdLineItem,
   PerformanceStats,
   InvoiceCadence,
+  SlotCapacity,
+  DayCapacity,
+  DateRangeCapacity,
 } from "../types";
-import type { CampaignInvoiceLink } from "../xero-types";
+import { DAILY_CAPACITY_LIMITS } from "../types";
+import type { CampaignInvoiceLink, PlacementInvoiceLink } from "../xero-types";
 import { getXeroConnection, fetchXeroInvoice } from "../xero";
 
 // ─── Mapper helpers ──────────────────────────────────────────
@@ -58,6 +62,7 @@ function mapBillingOnboarding(
     poNumber: row.poNumber ?? undefined,
     invoiceCadence: (row.invoiceCadence as InvoiceCadence) ?? undefined,
     specialInstructions: row.specialInstructions ?? undefined,
+    uploadedDocUrl: row.uploadedDocUrl ?? undefined,
   };
 }
 
@@ -79,6 +84,7 @@ function mapPlacement(
     onboardingRoundId: row.onboardingRoundId ?? undefined,
     copyProducer: (row.copyProducer as "Us" | "Client") ?? undefined,
     notes: row.notes ?? undefined,
+    onboardingBrief: row.onboardingBrief ?? undefined,
     stats: (row.stats as PerformanceStats) ?? undefined,
     imageUrl: row.imageUrl ?? undefined,
     logoUrl: row.logoUrl ?? undefined,
@@ -114,6 +120,9 @@ function mapCampaign(row: CampaignRelational): Campaign {
     placementsDescription: row.placementsDescription ?? undefined,
     performanceTableUrl: row.performanceTableUrl ?? undefined,
     notes: row.notes ?? undefined,
+    onboardingMessaging: row.onboardingMessaging ?? undefined,
+    onboardingDesiredAction: row.onboardingDesiredAction ?? undefined,
+    onboardingSubmittedAt: row.onboardingSubmittedAt?.toISOString() ?? undefined,
     onboardingRounds: row.onboardingRounds
       .map(mapOnboardingRound)
       .sort(
@@ -381,6 +390,40 @@ export async function getCampaignInvoiceLinks(
   return links;
 }
 
+export async function getPlacementInvoiceLinks(
+  placementId: string
+): Promise<PlacementInvoiceLink[]> {
+  const rows = await db.query.placementInvoices.findMany({
+    where: eq(schema.placementInvoices.placementId, placementId),
+  });
+
+  const conn = await getXeroConnection();
+  const links: PlacementInvoiceLink[] = [];
+
+  for (const row of rows) {
+    const link: PlacementInvoiceLink = {
+      id: row.id,
+      placementId: row.placementId,
+      xeroInvoiceId: row.xeroInvoiceId,
+      linkedAt: row.linkedAt.toISOString(),
+      notes: row.notes ?? undefined,
+    };
+
+    if (conn) {
+      const invoice = await fetchXeroInvoice(
+        conn.tenantId,
+        conn.accessToken,
+        row.xeroInvoiceId
+      );
+      if (invoice) link.invoice = invoice;
+    }
+
+    links.push(link);
+  }
+
+  return links;
+}
+
 export interface InvoiceLinkWithCampaign extends CampaignInvoiceLink {
   campaignName: string;
   clientName: string;
@@ -429,4 +472,77 @@ export async function getAllInvoiceLinks(): Promise<InvoiceLinkWithCampaign[]> {
   }
 
   return links;
+}
+
+// ─── Capacity / scheduling queries ──────────────────────────
+
+function getWeekdaysInRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const current = new Date(start + "T00:00:00");
+  const last = new Date(end + "T00:00:00");
+  while (current <= last) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      dates.push(current.toISOString().slice(0, 10));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+export async function getCapacityForDateRange(
+  startDate: string,
+  endDate: string
+): Promise<DateRangeCapacity> {
+  // Fetch all placements with a scheduledDate in the range
+  const rows = await db
+    .select({
+      scheduledDate: schema.placements.scheduledDate,
+      type: schema.placements.type,
+      publication: schema.placements.publication,
+    })
+    .from(schema.placements)
+    .where(
+      and(
+        isNotNull(schema.placements.scheduledDate),
+        gte(schema.placements.scheduledDate, startDate),
+        lte(schema.placements.scheduledDate, endDate)
+      )
+    );
+
+  // Build usage map: date -> publication -> type -> count
+  const usageMap = new Map<string, Map<string, Map<string, number>>>();
+  for (const row of rows) {
+    const date = row.scheduledDate!;
+    if (!usageMap.has(date)) usageMap.set(date, new Map());
+    const pubMap = usageMap.get(date)!;
+    if (!pubMap.has(row.publication)) pubMap.set(row.publication, new Map());
+    const typeMap = pubMap.get(row.publication)!;
+    typeMap.set(row.type, (typeMap.get(row.type) ?? 0) + 1);
+  }
+
+  const publications: Publication[] = ["The Peak", "Peak Money"];
+  const cappedTypes = (Object.entries(DAILY_CAPACITY_LIMITS) as [PlacementType, number | null][])
+    .filter(([, limit]) => limit !== null) as [PlacementType, number][];
+
+  const weekdays = getWeekdaysInRange(startDate, endDate);
+
+  const days: DayCapacity[] = weekdays.map((date) => {
+    const slots: SlotCapacity[] = [];
+    for (const pub of publications) {
+      for (const [type, limit] of cappedTypes) {
+        const used = usageMap.get(date)?.get(pub)?.get(type) ?? 0;
+        slots.push({
+          publication: pub,
+          type,
+          used,
+          limit,
+          available: limit - used,
+        });
+      }
+    }
+    return { date, slots };
+  });
+
+  return { startDate, endDate, days };
 }

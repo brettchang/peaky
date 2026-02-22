@@ -3,15 +3,21 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Placement, OnboardingRound, PlacementStatus } from "@/lib/types";
+import { Placement, OnboardingRound, PlacementStatus, AdLineItem } from "@/lib/types";
+import type { PlacementInvoiceLink } from "@/lib/xero-types";
 import { AddPlacementForm } from "@/components/AddPlacementForm";
 import { CopyEditor } from "@/components/CopyEditor";
+import { InvoiceLinkModal } from "@/components/InvoiceLinkModal";
+import { InvoiceStatusBadge } from "@/components/InvoiceStatusBadge";
 
 interface AdminPlacementListProps {
   placements: Placement[];
   campaignId: string;
   portalUrl: string;
   onboardingRounds?: OnboardingRound[];
+  invoiceLinksByPlacement?: Record<string, PlacementInvoiceLink[]>;
+  adLineItems?: AdLineItem[];
+  xeroConnected?: boolean;
 }
 
 export function AdminPlacementList({
@@ -19,6 +25,9 @@ export function AdminPlacementList({
   campaignId,
   portalUrl,
   onboardingRounds,
+  invoiceLinksByPlacement = {},
+  adLineItems = [],
+  xeroConnected = false,
 }: AdminPlacementListProps) {
   const router = useRouter();
   const [copiedLink, setCopiedLink] = useState(false);
@@ -32,6 +41,8 @@ export function AdminPlacementList({
   const [syncMessages, setSyncMessages] = useState<
     Record<string, { type: "error" | "success"; text: string }>
   >({});
+  const [invoiceModalPlacementId, setInvoiceModalPlacementId] = useState<string | null>(null);
+  const [unlinkingInvoiceId, setUnlinkingInvoiceId] = useState<string | null>(null);
 
   async function handleCopyPortalLink() {
     await navigator.clipboard.writeText(portalUrl);
@@ -167,6 +178,36 @@ export function AdminPlacementList({
       }
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  function getPlacementCost(placement: Placement): number | null {
+    const item = adLineItems.find((li) => li.type === placement.type);
+    return item ? item.pricePerUnit : null;
+  }
+
+  function formatCurrency(amount: number) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  }
+
+  async function handleUnlinkInvoice(linkId: string) {
+    setUnlinkingInvoiceId(linkId);
+    try {
+      const res = await fetch("/api/xero/unlink-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linkId, type: "placement" }),
+      });
+      if (res.ok) {
+        router.refresh();
+      }
+    } finally {
+      setUnlinkingInvoiceId(null);
     }
   }
 
@@ -407,6 +448,69 @@ export function AdminPlacementList({
                     )}
                   </div>
                 )}
+
+                {/* Cost + Invoice row */}
+                {(() => {
+                  const cost = getPlacementCost(placement);
+                  const links = invoiceLinksByPlacement[placement.id] ?? [];
+                  const invoiceTotal = links.reduce(
+                    (sum, l) => sum + (l.invoice?.total ?? 0),
+                    0
+                  );
+                  const showRow = cost != null || links.length > 0 || xeroConnected;
+                  if (!showRow) return null;
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                      {cost != null && (
+                        <span className="text-gray-500">
+                          Cost:{" "}
+                          <span className="font-semibold text-gray-900">
+                            {formatCurrency(cost)}
+                          </span>
+                        </span>
+                      )}
+                      {links.length > 0 && (
+                        <span className="text-gray-500">
+                          {links.length} invoice{links.length !== 1 ? "s" : ""} —{" "}
+                          <span className="font-semibold text-gray-900">
+                            {formatCurrency(invoiceTotal)}
+                          </span>
+                        </span>
+                      )}
+                      {links.map((link) => (
+                        <span
+                          key={link.id}
+                          className="inline-flex items-center gap-1"
+                        >
+                          <span className="font-medium text-gray-700">
+                            {link.invoice?.invoiceNumber ||
+                              link.xeroInvoiceId.slice(0, 8)}
+                          </span>
+                          {link.invoice && (
+                            <InvoiceStatusBadge status={link.invoice.status} />
+                          )}
+                          <button
+                            onClick={() => handleUnlinkInvoice(link.id)}
+                            disabled={unlinkingInvoiceId === link.id}
+                            className="text-red-400 hover:text-red-600 disabled:opacity-50"
+                          >
+                            {unlinkingInvoiceId === link.id ? "..." : "×"}
+                          </button>
+                        </span>
+                      ))}
+                      {xeroConnected && (
+                        <button
+                          onClick={() =>
+                            setInvoiceModalPlacementId(placement.id)
+                          }
+                          className="font-medium text-blue-600 hover:text-blue-700"
+                        >
+                          + Link Invoice
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {isExpanded && (
@@ -460,6 +564,19 @@ export function AdminPlacementList({
           );
         })}
       </div>
+
+      {invoiceModalPlacementId && (
+        <InvoiceLinkModal
+          campaignId={campaignId}
+          placementId={invoiceModalPlacementId}
+          existingInvoiceIds={
+            (invoiceLinksByPlacement[invoiceModalPlacementId] ?? []).map(
+              (l) => l.xeroInvoiceId
+            )
+          }
+          onClose={() => setInvoiceModalPlacementId(null)}
+        />
+      )}
     </div>
   );
 }

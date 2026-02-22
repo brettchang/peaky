@@ -16,7 +16,9 @@ export {
   getClientByCampaignId,
   getAllClients,
   getCampaignInvoiceLinks,
+  getPlacementInvoiceLinks,
   getAllInvoiceLinks,
+  getCapacityForDateRange,
 } from "./queries";
 
 export {
@@ -36,4 +38,7 @@ export {
   updateCampaignMetadata,
   updatePlacementMetadata,
   syncPlacementBeehiivStats,
+  bulkSchedulePlacements,
+  saveOnboardingForm,
+  submitOnboardingForm,
 } from "./mutations";

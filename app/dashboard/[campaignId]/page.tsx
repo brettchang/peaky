@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCampaignById, getClientByCampaignId, getCampaignInvoiceLinks } from "@/lib/db";
+import { getCampaignById, getClientByCampaignId, getCampaignInvoiceLinks, getPlacementInvoiceLinks } from "@/lib/db";
 import { isXeroConnected } from "@/lib/xero";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdminPlacementList } from "@/components/AdminPlacementList";
@@ -10,6 +10,8 @@ import { AdLineItems } from "@/components/AdLineItems";
 import { BillingDetails } from "@/components/BillingDetails";
 import { CampaignInvoiceSection } from "@/components/CampaignInvoiceSection";
 import { CampaignMetadataEditor } from "@/components/CampaignMetadataEditor";
+import { DateRangeScheduler } from "@/components/DateRangeScheduler";
+import { GenerateCopyButton } from "@/components/GenerateCopyButton";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,17 @@ export default async function CampaignDetailPage({
     isXeroConnected(),
     getCampaignInvoiceLinks(campaignId),
   ]);
+
+  // Fetch placement invoice links in parallel
+  const placementInvoiceEntries = await Promise.all(
+    campaign.placements.map(async (p) => {
+      const links = await getPlacementInvoiceLinks(p.id);
+      return [p.id, links] as const;
+    })
+  );
+  const invoiceLinksByPlacement: Record<string, import("@/lib/xero-types").PlacementInvoiceLink[]> =
+    Object.fromEntries(placementInvoiceEntries);
+
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
   const portalUrl = client
     ? `${baseUrl}/portal/${client.portalId}`
@@ -84,7 +97,49 @@ export default async function CampaignDetailPage({
         campaignId={campaign.id}
         billingOnboarding={campaign.billingOnboarding}
         placements={campaign.placements}
+        onboardingSubmittedAt={campaign.onboardingSubmittedAt}
       />
+
+      {/* Client Onboarding Briefs */}
+      {campaign.onboardingSubmittedAt && (
+        <div className="mb-8">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Client Onboarding Brief</h3>
+          <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Overall Messaging</p>
+              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                {campaign.onboardingMessaging || "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Desired Action</p>
+              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                {campaign.onboardingDesiredAction || "—"}
+              </p>
+            </div>
+            {campaign.placements.some((p) => p.onboardingBrief) && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Per-Placement Briefs</p>
+                <div className="space-y-2">
+                  {campaign.placements
+                    .filter((p) => p.onboardingBrief)
+                    .map((p) => (
+                      <div key={p.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                        <span className="text-xs font-medium text-gray-600">{p.type} &middot; {p.publication}</span>
+                        <p className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap">{p.onboardingBrief}</p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            {campaign.status === "Onboarding Form Complete" && (
+              <div className="pt-2 border-t border-gray-100">
+                <GenerateCopyButton campaignId={campaign.id} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Billing Details */}
       {campaign.billingOnboarding?.complete && (
@@ -106,12 +161,21 @@ export default async function CampaignDetailPage({
         placements={campaign.placements}
       />
 
+      {/* Date Range Scheduler */}
+      <DateRangeScheduler
+        campaignId={campaign.id}
+        placements={campaign.placements}
+      />
+
       {/* Placements */}
       <AdminPlacementList
         placements={campaign.placements}
         campaignId={campaign.id}
         portalUrl={portalUrl}
         onboardingRounds={campaign.onboardingRounds}
+        invoiceLinksByPlacement={invoiceLinksByPlacement}
+        adLineItems={campaign.adLineItems ?? []}
+        xeroConnected={xeroStatus.connected}
       />
     </div>
   );

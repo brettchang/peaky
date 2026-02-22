@@ -15,6 +15,7 @@ import type {
   CampaignStatus,
   PerformanceStats,
 } from "../types";
+import { DAILY_CAPACITY_LIMITS } from "../types";
 import { getCampaignById, getPlacement } from "./queries";
 
 const nanoid = customAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 10);
@@ -196,9 +197,6 @@ export function createCampaign(data: {
       complete: false,
     });
 
-    // Create initial onboarding round
-    const firstRound = await createOnboardingRound(campaignId, "Initial Round");
-
     // Auto-create placements from ad line items
     if (data.adLineItems) {
       for (const lineItem of data.adLineItems) {
@@ -207,7 +205,6 @@ export function createCampaign(data: {
             type: lineItem.type,
             publication: "The Peak",
             status: "New Campaign",
-            onboardingRoundId: firstRound?.id,
           });
         }
       }
@@ -454,6 +451,150 @@ export async function syncPlacementBeehiivStats(
     .set({ beehiivPostId, stats })
     .where(eq(schema.placements.id, placementId));
   return (result.rowCount ?? 0) > 0;
+}
+
+// ─── Bulk scheduling ────────────────────────────────────────
+
+export interface BulkScheduleAssignment {
+  campaignId: string;
+  placementId: string;
+  scheduledDate: string;
+}
+
+export interface BulkScheduleResult {
+  success: boolean;
+  scheduled: number;
+  errors: { placementId: string; error: string }[];
+}
+
+export async function bulkSchedulePlacements(
+  assignments: BulkScheduleAssignment[]
+): Promise<BulkScheduleResult> {
+  const errors: { placementId: string; error: string }[] = [];
+  let scheduled = 0;
+
+  for (const assignment of assignments) {
+    const { campaignId, placementId, scheduledDate } = assignment;
+
+    // Validate weekday
+    const dateObj = new Date(scheduledDate + "T00:00:00");
+    const day = dateObj.getDay();
+    if (day === 0 || day === 6) {
+      errors.push({ placementId, error: "Date must be a weekday" });
+      continue;
+    }
+
+    // Get the placement to check its type and publication
+    const placement = await getPlacement(campaignId, placementId);
+    if (!placement) {
+      errors.push({ placementId, error: "Placement not found" });
+      continue;
+    }
+
+    // Check capacity at write time for capped types
+    const limit = DAILY_CAPACITY_LIMITS[placement.type];
+    if (limit !== null) {
+      const existing = await db
+        .select({ id: schema.placements.id })
+        .from(schema.placements)
+        .where(
+          and(
+            eq(schema.placements.scheduledDate, scheduledDate),
+            eq(schema.placements.type, placement.type),
+            eq(schema.placements.publication, placement.publication)
+          )
+        );
+
+      if (existing.length >= limit) {
+        errors.push({
+          placementId,
+          error: `${placement.type} is full on ${scheduledDate} for ${placement.publication} (${existing.length}/${limit})`,
+        });
+        continue;
+      }
+    }
+
+    // Perform the update
+    const result = await db
+      .update(schema.placements)
+      .set({ scheduledDate })
+      .where(
+        and(
+          eq(schema.placements.id, placementId),
+          eq(schema.placements.campaignId, campaignId)
+        )
+      );
+
+    if ((result.rowCount ?? 0) > 0) {
+      scheduled++;
+    } else {
+      errors.push({ placementId, error: "Failed to update placement" });
+    }
+  }
+
+  return {
+    success: errors.length === 0,
+    scheduled,
+    errors,
+  };
+}
+
+// ─── Onboarding mutations ────────────────────────────────────
+
+export async function saveOnboardingForm(
+  campaignId: string,
+  data: {
+    messaging?: string;
+    desiredAction?: string;
+    placementBriefs?: { placementId: string; brief: string }[];
+  }
+): Promise<boolean> {
+  // Save campaign-level fields
+  await db
+    .update(schema.campaigns)
+    .set({
+      onboardingMessaging: data.messaging ?? null,
+      onboardingDesiredAction: data.desiredAction ?? null,
+    })
+    .where(eq(schema.campaigns.id, campaignId));
+
+  // Save per-placement briefs
+  if (data.placementBriefs) {
+    for (const { placementId, brief } of data.placementBriefs) {
+      await db
+        .update(schema.placements)
+        .set({ onboardingBrief: brief || null })
+        .where(
+          and(
+            eq(schema.placements.id, placementId),
+            eq(schema.placements.campaignId, campaignId)
+          )
+        );
+    }
+  }
+
+  return true;
+}
+
+export async function submitOnboardingForm(
+  campaignId: string,
+  data: {
+    messaging: string;
+    desiredAction: string;
+    placementBriefs: { placementId: string; brief: string }[];
+  }
+): Promise<boolean> {
+  await saveOnboardingForm(campaignId, data);
+
+  await db
+    .update(schema.campaigns)
+    .set({
+      onboardingSubmittedAt: new Date(),
+      status: "Onboarding Form Complete" satisfies CampaignStatus,
+    })
+    .where(eq(schema.campaigns.id, campaignId));
+
+  return true;
 }
 
 // ─── Internal helpers ────────────────────────────────────────

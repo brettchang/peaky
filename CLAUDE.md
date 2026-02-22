@@ -4,7 +4,9 @@
 
 A client-facing web portal where The Peak's advertising clients can review and approve ad copy, track revision history, and monitor campaign performance — all via a unique URL with no login required.
 
-Internally, the portal also serves as the team's campaign management dashboard, replacing manual copy-pasting between Claude, Google Docs, Notion, and Beehiiv.
+Internally, the portal also serves as the team's campaign management dashboard for managing campaigns, placements, onboarding, invoicing, and Beehiiv publishing.
+
+**Production URL:** `https://peaky-ten.vercel.app`
 
 ---
 
@@ -12,43 +14,79 @@ Internally, the portal also serves as the team's campaign management dashboard, 
 
 Each client gets a permanent unique link:
 ```
-yourapp.com/portal/[unique-client-id]
+peaky-ten.vercel.app/portal/[unique-client-id]
 ```
 
-No accounts. No passwords. The URL is their credential. It maps to a client record in Notion that links to all their campaigns. They bookmark it and return to it for every campaign.
-
----
-
-## Current Workflow (What We're Replacing)
-
-1. Client fills out onboarding form → creates a Notion campaign + Google Doc
-2. Team manually prompts Claude to generate ad copy
-3. Team copies copy into Google Doc, sends for client approval
-4. Client fills out a separate form to approve or request edits
-5. Team puts approved copy in the Notion ad calendar
-6. Team copies copy from Notion into Beehiiv manually
-
-## Target Workflow
-
-1. Onboarding form webhook → auto-creates Notion campaign, triggers Claude copy generation
-2. Team reviews generated copy in internal dashboard, then sends client their portal link
-3. Client visits their portal, reviews copy, approves or leaves revision notes
-4. On approval → copy auto-pushes to Notion ad calendar
-5. One-click publish to Beehiiv from the internal dashboard
-6. Performance data from Beehiiv surfaces automatically in the client's portal
+No accounts. No passwords. The URL is their credential. Portal IDs are 12-char nanoid strings using a custom alphabet (no ambiguous characters like 0/O, 1/l/I). Clients bookmark the link and return to it for every campaign.
 
 ---
 
 ## Tech Stack
 
 - **Framework:** Next.js 14 (App Router)
-- **Styling:** Tailwind CSS
-- **Database:** Notion (via Notion API) — no separate DB needed
-- **APIs:**
-  - Notion API (campaigns database + ad calendar + client records)
-  - Anthropic API (copy generation)
-  - Beehiiv API (publishing + performance data)
-  - Google Drive API (reading onboarding docs)
+- **Language:** TypeScript 5
+- **Styling:** Tailwind CSS 3.4
+- **Database:** PostgreSQL (Neon) via `@vercel/postgres` + Drizzle ORM
+- **Hosting:** Vercel
+- **Rich Text Editor:** Tiptap (with markdown support)
+- **File Storage:** Vercel Blob
+- **Integrations:**
+  - Beehiiv API (publishing drafts + fetching performance stats)
+  - Xero API (OAuth 2.0 invoice management)
+  - Fillout Forms (webhook for onboarding + billing data collection)
+
+---
+
+## Database Schema (PostgreSQL via Drizzle)
+
+All state lives in PostgreSQL. Schema is defined in `lib/db/schema.ts`, queries in `lib/db/queries.ts`, mutations in `lib/db/mutations.ts`.
+
+### Tables
+
+**`clients`** — Client accounts
+- `id`, `name`, `portal_id` (unique, used in URLs)
+
+**`campaigns`** — Campaign metadata
+- `id`, `name`, `client_id` (FK), `status` (CampaignStatus), `campaign_manager`, `contact_name`, `contact_email`
+- `ad_line_items` (JSONB), `placements_description`, `performance_table_url`, `notes`, `created_at`
+
+**`placements`** — Individual ad placements within a campaign
+- `id`, `campaign_id` (FK), `name`, `type` (PlacementType), `publication` (Publication)
+- `scheduled_date`, `status` (PlacementStatus), `current_copy`, `copy_version`
+- `revision_notes`, `onboarding_round_id`, `copy_producer` ("Us" | "Client")
+- `stats` (JSONB PerformanceStats), `image_url`, `logo_url`, `link_to_placement`
+- `conflict_preference`, `beehiiv_post_id`, `created_at`, `published_at`
+
+**`copy_versions`** — Revision history for placement copy
+- `id`, `placement_id` (FK), `version`, `copy_text`, `revision_notes`, `created_at`
+- Unique constraint on (placement_id, version)
+
+**`onboarding_rounds`** — Form submission rounds per campaign
+- `id`, `campaign_id` (FK), `label`, `fillout_link`, `complete`, `onboarding_doc_url`, `created_at`
+
+**`billing_onboarding`** — Billing form data per campaign
+- `id`, `campaign_id` (FK, unique), `fillout_link`, `complete`, `completed_at`
+- `billing_contact_name`, `billing_contact_email`, `billing_address`, `po_number`
+- `invoice_cadence` (JSONB: "lump-sum" | "equal-monthly" | "per-month-usage"), `special_instructions`, `uploaded_doc_url`
+
+**`xero_connections`** — OAuth token storage for Xero
+- `id`, `tenant_id`, `tenant_name`, `access_token`, `refresh_token`, `expires_at`
+
+**`campaign_invoices`** — Links Xero invoices to campaigns
+- `id`, `campaign_id` (FK), `xero_invoice_id`, `linked_at`, `notes`
+
+**`placement_invoices`** — Links Xero invoices to placements
+- `id`, `placement_id` (FK), `xero_invoice_id`, `linked_at`, `notes`
+
+### Key Enums
+
+**PlacementStatus:** `"New Campaign"` | `"Onboarding Requested"` | `"Copywriting in Progress"` | `"Peak Team Review Complete"` | `"Sent for Approval"` | `"Approved"` | `"Debrief Needed"` | `"Send Debrief"` | `"Client Missed Placement"` | `"Hold"` | `"Done"`
+
+**CampaignStatus:** `"Waiting on Onboarding"` | `"Onboarding Form Complete"` | `"Active"` | `"Placements Completed"` | `"Wrapped"`
+
+**PlacementType:** `"Primary"` | `"Secondary"` | `"Peak Picks"` | `"Beehiv"` | `"Smart Links"` | `"BLS"` | `"Podcast Ad"`
+
+**Publication:** `"The Peak"` | `"Peak Money"`
 
 ---
 
@@ -56,197 +94,199 @@ No accounts. No passwords. The URL is their credential. It maps to a client reco
 
 ```
 /app
-  /portal/[clientId]                  # Client portal home — all their campaigns
-  /portal/[clientId]/[campaignId]     # Individual campaign — copy review + performance
-  /dashboard                          # Internal team view — all campaigns across all clients
-  /dashboard/[campaignId]             # Internal campaign management page
+  /portal
+    /[clientId]/page.tsx                           # Client home — all their campaigns
+    /[clientId]/[campaignId]/page.tsx               # Campaign — all placements
+    /[clientId]/[campaignId]/[placementId]/page.tsx # Placement detail — approval UI + stats
+  /dashboard
+    /page.tsx                                       # Internal dashboard (table + calendar views)
+    /[campaignId]/page.tsx                          # Campaign admin (placements list, metadata)
+    /[campaignId]/[placementId]/page.tsx            # Placement admin (copy editor, invoices, stats)
+    /login/page.tsx                                 # Dashboard login form
+    /invoicing/page.tsx                             # Invoice management
   /api
-    /generate-copy                    # POST: triggers Claude to generate copy
-    /approve                          # POST: client approves copy
-    /revise                           # POST: client submits revision notes
-    /publish-beehiiv                  # POST: pushes approved copy to Beehiiv as draft
-    /webhook/onboarding               # POST: receives new campaign form submissions
+    /approve/route.ts                # Client approves placement
+    /revise/route.ts                 # Client submits revision notes
+    /create-campaign/route.ts        # Create new campaign
+    /update-campaign/route.ts        # Update campaign metadata
+    /update-placement/route.ts       # Edit placement fields
+    /update-copy/route.ts            # Update copy (increments version)
+    /update-schedule/route.ts        # Set scheduled_date
+    /add-placement/route.ts          # Create new placement
+    /bulk-schedule/route.ts          # Bulk assign dates to placements
+    /schedule-capacity/route.ts      # Check capacity for date range
+    /publish-beehiiv/route.ts        # Create Beehiiv draft from approved copy
+    /sync-beehiiv-stats/route.ts     # Fetch Beehiiv stats and save to DB
+    /create-onboarding-round/route.ts
+    /update-placement-round/route.ts
+    /update-ad-line-items/route.ts
+    /upload-onboarding-doc/route.ts
+    /dashboard/login/route.ts        # Dashboard auth
+    /webhook/fillout/route.ts        # Fillout form webhook
+    /xero/
+      /connect/route.ts             # Initiate Xero OAuth
+      /callback/route.ts            # OAuth callback
+      /disconnect/route.ts          # Clear Xero connection
+      /search-invoices/route.ts     # Search Xero invoices
+      /link-invoice/route.ts        # Link invoice to campaign/placement
+      /unlink-invoice/route.ts      # Remove invoice link
+
 /lib
-  /notion.ts                          # Notion API client + helpers
-  /anthropic.ts                       # Claude copy generation logic
-  /beehiiv.ts                         # Beehiiv API client (publishing + stats)
-  /google-drive.ts                    # Google Drive fetching helpers
-  /client-ids.ts                      # Client ID generation + validation
-/components
-  /CampaignCard.tsx                   # Used on portal home + dashboard
-  /CopyReview.tsx                     # The copy display + approve/revise UI
-  /RevisionHistory.tsx                # Shows v1, v2, v3 of copy with change context
-  /PerformanceStats.tsx               # Key metrics pulled from Beehiiv
-  /StatusBadge.tsx                    # Campaign status pill
-  /ConfirmationScreen.tsx             # Shown after client approves or submits revisions
+  /db/
+    /index.ts            # DB client export + re-exports
+    /schema.ts           # Drizzle table definitions + relations
+    /queries.ts          # Read operations
+    /mutations.ts        # Write operations
+  /types.ts              # Main type definitions
+  /beehiiv.ts            # Beehiiv API client (fetch posts, find by URL, extract stats)
+  /xero.ts               # Xero API helpers (OAuth, token refresh, invoice fetch)
+  /xero-types.ts         # Xero data types
+  /client-ids.ts         # Portal ID generation (nanoid)
+  /dashboard-auth.ts     # Cookie-based auth helper
+  /format-copy.ts        # Copy formatting utilities
+
+/components              # ~25 components
+  # Client Portal
+  CopyReview.tsx         # Approval/revision UI
+  CopyEditor.tsx         # Rich text editor (Tiptap + markdown)
+  RevisionHistory.tsx    # Copy version history display
+  PerformanceStats.tsx   # Stats display (opens, clicks, etc.)
+  StatusBadge.tsx        # Status pill component
+  ConfirmationScreen.tsx # Post-action confirmation
+  CampaignCard.tsx       # Campaign card for portal home
+
+  # Admin Dashboard
+  AdminPlacementDetail.tsx    # Full placement editor (copy, metadata, invoices)
+  AdminPlacementList.tsx      # Placement list with inline controls
+  CampaignMetadataEditor.tsx  # Campaign info editor
+  CreateCampaignForm.tsx      # New campaign form
+  DateRangeScheduler.tsx      # Date range picker for bulk scheduling
+  AddPlacementForm.tsx        # Create new placement
+  OnboardingStatus.tsx        # Onboarding form status + responses
+  DashboardTable.tsx          # Campaign table with filtering
+  CalendarView.tsx            # Calendar grid view of placements
+  DashboardViewToggle.tsx     # Table/calendar toggle
+  PlacementDashboard.tsx      # Placement list container
+  AdLineItems.tsx             # Ad pricing/item editor
+
+  # Invoicing
+  InvoiceLinkModal.tsx        # Modal to search and link Xero invoices
+  InvoiceStatusBadge.tsx      # Invoice status indicator
+  CampaignInvoiceSection.tsx  # Campaign invoice display
+  BillingDetails.tsx          # Billing info display
+  XeroConnectButton.tsx       # OAuth button for Xero
+
+/drizzle                 # Migration files
+/middleware.ts           # Protects /dashboard routes
 ```
 
 ---
 
-## Screens
+## Features
 
-### Screen 1 — Client Portal Home `/portal/[clientId]`
-The client's home base. Shows all their campaigns as cards.
+### Client Portal (`/portal/[clientId]/...`)
+- URL-based access, no auth required
+- Campaign list with status badges
+- Placement detail: view copy, approve or submit revision notes
+- Inline copy editing before approval
+- Revision history (all previous versions with notes)
+- Performance stats display (from Beehiiv)
 
-Each card displays:
-- Campaign name
-- Status badge (Copy Ready for Review / Revisions Requested / Approved / Live)
-- Date created or published
+### Internal Dashboard (`/dashboard/...`)
+- Password-protected via middleware + cookie
+- Campaign list in table or calendar grid view
+- Campaign admin: edit metadata, manage placements, view onboarding status
+- Placement admin: edit copy (Tiptap rich text), set metadata, link invoices, sync Beehiiv stats
+- Bulk scheduling with per-type daily capacity limits
+- Create campaigns and placements
 
-Clicking a card goes to the campaign page. Clean and minimal — no extra chrome.
+### Beehiiv Integration (`lib/beehiiv.ts`)
+- Create drafts from approved copy (never publish directly)
+- Fetch posts by ID with expanded stats
+- Search posts by URL match (with date window)
+- Extract stats: opens, unique opens, open rate, clicks
+- Store Beehiiv post ID on placement for future stat lookups
 
-### Screen 2 — Campaign Page `/portal/[clientId]/[campaignId]`
-The main interaction screen. Two states depending on campaign status:
+### Xero Invoicing (`lib/xero.ts`)
+- Full OAuth 2.0 flow with auto token refresh (5-min buffer)
+- Search invoices by term or status
+- Link/unlink invoices at campaign or placement level
+- Display linked invoice info (amount, due date, status)
 
-**If copy is pending review:**
-- Displays ad copy in clean, readable format (not an editor)
-- Two actions: **Approve** button, or a text area to leave revision notes + **Submit** button
-- After either action: show a confirmation screen, update Notion status
-- If there have been multiple rounds, show a collapsible revision history (v1, v2, v3) so the client can see what changed
+### Fillout Form Webhook (`/api/webhook/fillout`)
+- Auto-creates onboarding rounds when forms are submitted
+- Auto-creates billing onboarding records
+- Extracts form fields: placement info, copy producer, billing contact, invoice cadence, etc.
 
-**If campaign is live:**
-- Shows the published copy
-- Shows performance stats pulled from Beehiiv: open rate, click rate, impressions
-- No charts needed for MVP — a clean stat display is enough
+### Capacity Scheduling
+- Daily limits per placement type per publication
+- Check available slots for date range
+- Bulk schedule respecting capacity constraints
+- Weekdays only
 
-### Screen 3 — Internal Dashboard `/dashboard`
-Team-only view (protected with simple env-based password for now).
-
-Lists all campaigns across all clients with:
-- Client name, campaign name, status
-- "Copy Portal Link" button (copies the client's unique URL to clipboard)
-- "Regenerate Copy" button
-- "Publish to Beehiiv" button (only active when status = Approved)
-
----
-
-## Notion Database Schema
-
-### Clients Database (new — needs to be created)
-| Property | Type | Notes |
-|---|---|---|
-| Name | title | Client/company name |
-| Portal ID | rich_text | Unique ID used in the URL |
-| Campaigns | relation | Links to Campaigns database |
-
-### Campaigns Database (existing)
-Campaign names follow the format: `[Company Name] [4-digit number]` (e.g., "Felix Health 1646")
-
-Additional properties to add:
-| Property | Type | Notes |
-|---|---|---|
-| Name | title | Campaign name (existing) |
-| Client | relation | Links to Clients database |
-| Status | select | Draft / Copy Ready / Revisions Requested / Approved / Published |
-| Current Copy | rich_text | Latest version of generated copy |
-| Revision Notes | rich_text | Client's most recent feedback |
-| Copy Version | number | Increments each time copy is regenerated |
-| Onboarding Doc URL | url | Link to Google Doc |
-| Beehiiv Post ID | rich_text | Stored after publishing, used to fetch stats |
-
-### Ad Calendar Database (existing)
-When copy is approved, write to the ad calendar. Fetch the database schema first to confirm exact property names before writing.
+### Copy Versioning
+- Each copy update increments `copy_version`
+- Previous versions saved to `copy_versions` table
+- Full revision history displayed to clients and admins
 
 ---
 
-## Client ID Generation
+## Authentication
 
-Portal IDs should be short, unguessable, and human-copyable. Use nanoid with a custom alphabet:
+**Client Portal:** None — the portal ID in the URL is the credential.
 
-```ts
-// lib/client-ids.ts
-import { customAlphabet } from 'nanoid'
-
-// No ambiguous characters (0/O, 1/l/I)
-const nanoid = customAlphabet('23456789abcdefghjkmnpqrstuvwxyz', 12)
-
-export function generatePortalId(): string {
-  return nanoid()
-}
-```
-
-Store the Portal ID in the Clients database in Notion. Look it up on every request to `/portal/[clientId]` — if no matching client found, show a friendly 404.
+**Dashboard:** Simple password-based auth.
+- POST to `/api/dashboard/login` with password
+- Sets secure HTTP-only cookie (`dashboard_auth`)
+- `middleware.ts` checks cookie on all `/dashboard/*` routes
+- Unauthenticated users redirected to `/dashboard/login`
 
 ---
 
 ## Environment Variables
 
 ```
-NOTION_API_KEY=
-NOTION_CLIENTS_DB_ID=
-NOTION_CAMPAIGNS_DB_ID=
-NOTION_AD_CALENDAR_DB_ID=
-ANTHROPIC_API_KEY=
+# Database (Neon / Vercel Postgres)
+POSTGRES_URL=
+POSTGRES_URL_NON_POOLING=
+
+# Beehiiv
 BEEHIIV_API_KEY=
 BEEHIIV_PUBLICATION_ID=
-GOOGLE_SERVICE_ACCOUNT_JSON=
-NEXT_PUBLIC_BASE_URL=        # e.g., https://your-app.vercel.app
-DASHBOARD_PASSWORD=          # Simple password to protect /dashboard for now
+
+# Xero OAuth
+XERO_CLIENT_ID=
+XERO_CLIENT_SECRET=
+
+# Dashboard Auth
+DASHBOARD_PASSWORD=
+
+# App
+NEXT_PUBLIC_BASE_URL=    # e.g., https://peaky-ten.vercel.app
+```
+
+---
+
+## Database Commands
+
+```bash
+npm run db:generate   # Generate migration from schema changes
+npm run db:push       # Apply migrations to database
+npm run db:studio     # Open Drizzle Studio
 ```
 
 ---
 
 ## Implementation Notes
 
-### Notion as the Source of Truth
-All state lives in Notion. The app is a UI layer on top of Notion data. This means:
-- Always fetch fresh data from Notion on page load (or use short-lived cache)
-- Write status changes back to Notion immediately on client action
-- Don't maintain local state that could drift from Notion
-
-### Copy Versioning
-When copy is regenerated after revision notes, increment the `Copy Version` number and save the previous version (appended to the Notion page body) so revision history is preserved and displayable in the portal.
+### PostgreSQL is the Source of Truth
+All state lives in PostgreSQL (Neon). The app reads from and writes to the DB directly via Drizzle ORM. No external database dependencies for core state.
 
 ### Beehiiv Publishing
-Always create as a **draft** in Beehiiv, never publish directly. Store the returned Beehiiv post ID in the campaign's Notion record so performance stats can be fetched later.
+Always create as a **draft** in Beehiiv, never publish directly. Store the returned Beehiiv post ID on the placement record so performance stats can be fetched later.
 
-### Performance Stats
-Pull stats from the Beehiiv API using the stored post ID. Cache these for ~1 hour — no need to hit Beehiiv on every page load.
+### Xero OAuth
+Uses direct API calls (not the xero-node SDK) for serverless compatibility on Vercel. Tokens are stored in the `xero_connections` table and auto-refreshed when within 5 minutes of expiry.
 
 ### Dashboard Auth
-Protect `/dashboard` with a simple Next.js middleware check against a `DASHBOARD_PASSWORD` env var stored in a cookie. Don't over-engineer this — the client portal needs no auth at all, and the dashboard just needs to not be publicly accessible.
-
----
-
-## Build Order (Phase by Phase)
-
-### Phase 1 — Client Campaign Page (build this first)
-**Route:** `/portal/[clientId]/[campaignId]`
-
-The highest-value, most self-contained piece. Build it against a hardcoded mock campaign in Notion first, then wire up the real lookup.
-
-Acceptance criteria:
-- [ ] Displays campaign copy clearly formatted
-- [ ] Approve button → Notion status updates to "Approved" + confirmation screen shown
-- [ ] Revision notes text area + Submit → Notion status updates to "Revisions Requested", notes saved
-- [ ] Invalid client/campaign ID shows a friendly error page
-- [ ] No re-submission possible after action is taken
-
-### Phase 2 — Client Portal Home
-**Route:** `/portal/[clientId]`
-
-- [ ] Lists all campaigns for the client as cards
-- [ ] Each card shows name, status badge, date
-- [ ] Clicking a card navigates to the campaign page
-- [ ] Unknown client ID shows a friendly 404
-
-### Phase 3 — Internal Dashboard
-**Route:** `/dashboard`
-
-- [ ] Password-protected via Next.js middleware
-- [ ] Lists all campaigns across all clients
-- [ ] "Copy Portal Link" button per client
-- [ ] Status badges + basic filtering (All / Pending / Approved / Published)
-- [ ] "Publish to Beehiiv" button on approved campaigns (creates Beehiiv draft)
-
-### Phase 4 — Claude Copy Generation
-- [ ] Fetch onboarding Google Doc content
-- [ ] Extract structured form responses
-- [ ] Send to Anthropic API with a well-structured system prompt (prompt lives in `/lib/anthropic.ts` for easy iteration)
-- [ ] Save generated copy to Notion, set status to "Copy Ready"
-- [ ] "Regenerate" increments version number, preserves previous copy
-
-### Phase 5 — Performance Stats
-- [ ] Fetch stats from Beehiiv API using stored post ID
-- [ ] Display open rate, click rate, impressions on the campaign page when status = Published
-- [ ] Cache stats server-side for 1 hour
+Simple env-based password stored in a cookie. The client portal needs no auth at all — the dashboard just needs to not be publicly accessible. Don't over-engineer this.

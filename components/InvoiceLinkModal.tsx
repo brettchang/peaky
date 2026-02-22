@@ -7,12 +7,14 @@ import type { XeroInvoice, XeroInvoiceStatus } from "@/lib/xero-types";
 
 interface InvoiceLinkModalProps {
   campaignId: string;
+  placementId?: string;
   existingInvoiceIds: string[];
   onClose: () => void;
 }
 
 export function InvoiceLinkModal({
   campaignId,
+  placementId,
   existingInvoiceIds,
   onClose,
 }: InvoiceLinkModalProps) {
@@ -52,7 +54,11 @@ export function InvoiceLinkModal({
       const res = await fetch("/api/xero/link-invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, xeroInvoiceId: invoiceId }),
+        body: JSON.stringify({
+          campaignId,
+          placementId,
+          xeroInvoiceId: invoiceId,
+        }),
       });
       if (!res.ok) {
         const data = await res.json();

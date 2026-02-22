@@ -45,6 +45,9 @@ export const campaigns = pgTable(
     placementsDescription: text("placements_description"),
     performanceTableUrl: text("performance_table_url"),
     notes: text("notes"),
+    onboardingMessaging: text("onboarding_messaging"),
+    onboardingDesiredAction: text("onboarding_desired_action"),
+    onboardingSubmittedAt: timestamp("onboarding_submitted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("campaigns_client_id_idx").on(t.clientId)]
@@ -81,6 +84,7 @@ export const placements = pgTable(
     onboardingRoundId: text("onboarding_round_id"),
     copyProducer: text("copy_producer"), // "Us" | "Client"
     notes: text("notes"),
+    onboardingBrief: text("onboarding_brief"),
     stats: jsonb("stats").$type<PerformanceStats>(),
     imageUrl: text("image_url"),
     logoUrl: text("logo_url"),
@@ -99,6 +103,7 @@ export const placementsRelations = relations(placements, ({ one, many }) => ({
     references: [campaigns.id],
   }),
   revisionHistory: many(copyVersions),
+  placementInvoices: many(placementInvoices),
 }));
 
 // ─── Copy Versions (revision history) ────────────────────────
@@ -176,6 +181,7 @@ export const billingOnboarding = pgTable(
     poNumber: text("po_number"),
     invoiceCadence: jsonb("invoice_cadence").$type<InvoiceCadence>(),
     specialInstructions: text("special_instructions"),
+    uploadedDocUrl: text("uploaded_doc_url"),
   },
   (t) => [
     uniqueIndex("billing_onboarding_campaign_id_idx").on(t.campaignId),
@@ -233,6 +239,38 @@ export const campaignInvoicesRelations = relations(
     campaign: one(campaigns, {
       fields: [campaignInvoices.campaignId],
       references: [campaigns.id],
+    }),
+  })
+);
+
+// ─── Placement Invoices (join table) ────────────────────────
+
+export const placementInvoices = pgTable(
+  "placement_invoices",
+  {
+    id: text("id").primaryKey(),
+    placementId: text("placement_id")
+      .notNull()
+      .references(() => placements.id, { onDelete: "cascade" }),
+    xeroInvoiceId: text("xero_invoice_id").notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull(),
+    notes: text("notes"),
+  },
+  (t) => [
+    uniqueIndex("placement_invoices_placement_invoice_idx").on(
+      t.placementId,
+      t.xeroInvoiceId
+    ),
+    index("placement_invoices_placement_id_idx").on(t.placementId),
+  ]
+);
+
+export const placementInvoicesRelations = relations(
+  placementInvoices,
+  ({ one }) => ({
+    placement: one(placements, {
+      fields: [placementInvoices.placementId],
+      references: [placements.id],
     }),
   })
 );

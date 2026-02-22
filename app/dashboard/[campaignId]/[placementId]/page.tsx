@@ -1,7 +1,8 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCampaignById } from "@/lib/db";
+import { getCampaignById, getPlacementInvoiceLinks } from "@/lib/db";
+import { isXeroConnected } from "@/lib/xero";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdminPlacementDetail } from "@/components/AdminPlacementDetail";
 
@@ -22,6 +23,11 @@ export default async function PlacementDetailPage({
 
   const placement = campaign.placements.find((p) => p.id === placementId);
   if (!placement) notFound();
+
+  const [invoiceLinks, xeroStatus] = await Promise.all([
+    getPlacementInvoiceLinks(placementId),
+    isXeroConnected(),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
@@ -46,6 +52,9 @@ export default async function PlacementDetailPage({
       <AdminPlacementDetail
         campaignId={campaignId}
         placement={placement}
+        invoiceLinks={invoiceLinks}
+        adLineItems={campaign.adLineItems ?? []}
+        xeroConnected={xeroStatus.connected}
       />
     </div>
   );

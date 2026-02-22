@@ -33,3 +33,12 @@ export interface CampaignInvoiceLink {
   notes?: string;
   invoice?: XeroInvoice;
 }
+
+export interface PlacementInvoiceLink {
+  id: string;
+  placementId: string;
+  xeroInvoiceId: string;
+  linkedAt: string;
+  notes?: string;
+  invoice?: XeroInvoice;
+}

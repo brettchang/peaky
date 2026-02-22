@@ -55,6 +55,39 @@ export type PlacementType =
   | "BLS"
   | "Podcast Ad";
 
+// === Daily capacity limits per placement type (per publication, weekdays only) ===
+// null = unlimited
+export const DAILY_CAPACITY_LIMITS: Record<PlacementType, number | null> = {
+  Primary: 1,
+  Secondary: 1,
+  "Peak Picks": 4,
+  Beehiv: null,
+  "Smart Links": null,
+  BLS: null,
+  "Podcast Ad": null,
+};
+
+// === Capacity / scheduling types ===
+
+export interface SlotCapacity {
+  publication: Publication;
+  type: PlacementType;
+  used: number;
+  limit: number | null;
+  available: number | null;
+}
+
+export interface DayCapacity {
+  date: string;
+  slots: SlotCapacity[];
+}
+
+export interface DateRangeCapacity {
+  startDate: string;
+  endDate: string;
+  days: DayCapacity[];
+}
+
 // === Notion Ad Calendar publications ===
 export type Publication = "The Peak" | "Peak Money";
 
@@ -100,6 +133,7 @@ export interface Placement {
   onboardingRoundId?: string;
   copyProducer?: "Us" | "Client";
   notes?: string;
+  onboardingBrief?: string;
   stats?: PerformanceStats;           // inline from Ad Calendar fields
   imageUrl?: string;
   logoUrl?: string;
@@ -149,6 +183,7 @@ export interface BillingOnboarding {
   poNumber?: string;
   invoiceCadence?: InvoiceCadence;
   specialInstructions?: string;
+  uploadedDocUrl?: string;
 }
 
 export interface Campaign {
@@ -165,8 +200,15 @@ export interface Campaign {
   performanceTableUrl?: string;
   billingOnboarding?: BillingOnboarding;
   notes?: string;
+  onboardingMessaging?: string;
+  onboardingDesiredAction?: string;
+  onboardingSubmittedAt?: string;
   placements: Placement[];
   createdAt: string;
+}
+
+export function isOnboardingEditable(campaign: Campaign): boolean {
+  return campaign.status === "Waiting on Onboarding" || campaign.status === "Onboarding Form Complete";
 }
 
 export interface Client {
