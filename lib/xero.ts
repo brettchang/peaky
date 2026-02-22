@@ -1,4 +1,3 @@
-import { XeroClient, TokenSet } from "xero-node";
 import { eq } from "drizzle-orm";
 import { db } from "./db/index";
 import * as schema from "./db/schema";
@@ -6,20 +5,6 @@ import type { XeroInvoice, XeroInvoiceStatus } from "./xero-types";
 import { customAlphabet } from "nanoid";
 
 const nanoid = customAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 16);
-
-const XERO_SCOPES =
-  "openid profile email accounting.transactions.read offline_access";
-
-export function createXeroClient(): XeroClient {
-  return new XeroClient({
-    clientId: process.env.XERO_CLIENT_ID!,
-    clientSecret: process.env.XERO_CLIENT_SECRET!,
-    redirectUris: [
-      `${process.env.NEXT_PUBLIC_BASE_URL}/api/xero/callback`,
-    ],
-    scopes: XERO_SCOPES.split(" "),
-  });
-}
 
 // ─── Connection helpers ─────────────────────────────────────
 
@@ -40,24 +25,37 @@ export async function getXeroConnection(): Promise<XeroConnection | null> {
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
   if (row.expiresAt <= fiveMinutesFromNow) {
     try {
-      const client = createXeroClient();
-      await client.initialize();
-      const tokenSet = await client.refreshWithRefreshToken(
-        process.env.XERO_CLIENT_ID!,
-        process.env.XERO_CLIENT_SECRET!,
-        row.refreshToken
+      const clientId = process.env.XERO_CLIENT_ID!;
+      const clientSecret = process.env.XERO_CLIENT_SECRET!;
+
+      const refreshResponse = await fetch(
+        "https://identity.xero.com/connect/token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+          },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: row.refreshToken,
+          }),
+        }
       );
+
+      if (!refreshResponse.ok) throw new Error("Refresh failed");
+      const tokenData = await refreshResponse.json();
 
       const now = new Date();
       const expiresAt = new Date(
-        now.getTime() + (tokenSet.expires_in ?? 1800) * 1000
+        now.getTime() + (tokenData.expires_in ?? 1800) * 1000
       );
 
       await db
         .update(schema.xeroConnections)
         .set({
-          accessToken: tokenSet.access_token!,
-          refreshToken: tokenSet.refresh_token ?? row.refreshToken,
+          accessToken: tokenData.access_token,
+          refreshToken: tokenData.refresh_token ?? row.refreshToken,
           expiresAt,
           updatedAt: now,
         })
@@ -67,8 +65,8 @@ export async function getXeroConnection(): Promise<XeroConnection | null> {
         id: row.id,
         tenantId: row.tenantId,
         tenantName: row.tenantName,
-        accessToken: tokenSet.access_token!,
-        refreshToken: tokenSet.refresh_token ?? row.refreshToken,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token ?? row.refreshToken,
         expiresAt,
       };
     } catch {
@@ -125,30 +123,32 @@ export async function fetchXeroInvoices(
   accessToken: string,
   filters?: { statuses?: string[]; searchTerm?: string }
 ): Promise<XeroInvoice[]> {
-  const client = createXeroClient();
-  await client.initialize();
-  client.setTokenSet({ access_token: accessToken } as TokenSet);
+  const params = new URLSearchParams({
+    order: "Date DESC",
+    summaryOnly: "true",
+    pageSize: "100",
+  });
+  if (filters?.statuses?.length) {
+    params.set("statuses", filters.statuses.join(","));
+  }
+  if (filters?.searchTerm) {
+    params.set("searchTerm", filters.searchTerm);
+  }
 
-  const response = await client.accountingApi.getInvoices(
-    tenantId,
-    undefined, // ifModifiedSince
-    filters?.statuses ? `Status=="${filters.statuses.join('" OR Status=="')}"` : undefined, // where
-    "Date DESC", // order
-    undefined, // iDs
-    undefined, // invoiceNumbers
-    undefined, // contactIDs
-    filters?.statuses, // statuses
-    undefined, // page
-    undefined, // includeArchived
-    undefined, // createdByMyApp
-    undefined, // unitdp
-    true, // summaryOnly
-    100, // pageSize
-    filters?.searchTerm // searchTerm
+  const response = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices?${params}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Xero-Tenant-Id": tenantId,
+        Accept: "application/json",
+      },
+    }
   );
 
-  const invoices = response.body?.invoices ?? [];
-  return invoices.map(mapXeroInvoice);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return (data.Invoices ?? []).map(mapXeroInvoice);
 }
 
 export async function fetchXeroInvoice(
@@ -157,15 +157,20 @@ export async function fetchXeroInvoice(
   invoiceId: string
 ): Promise<XeroInvoice | null> {
   try {
-    const client = createXeroClient();
-    await client.initialize();
-    client.setTokenSet({ access_token: accessToken } as TokenSet);
-
-    const response = await client.accountingApi.getInvoice(
-      tenantId,
-      invoiceId
+    const response = await fetch(
+      `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Xero-Tenant-Id": tenantId,
+          Accept: "application/json",
+        },
+      }
     );
-    const invoices = response.body?.invoices ?? [];
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const invoices = data.Invoices ?? [];
     if (invoices.length === 0) return null;
     return mapXeroInvoice(invoices[0]);
   } catch {
