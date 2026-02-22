@@ -98,6 +98,7 @@ export default async function CampaignDetailPage({
         billingOnboarding={campaign.billingOnboarding}
         placements={campaign.placements}
         onboardingSubmittedAt={campaign.onboardingSubmittedAt}
+        portalUrl={portalUrl}
       />
 
       {/* Client Onboarding Briefs */}
