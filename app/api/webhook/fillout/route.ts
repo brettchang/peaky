@@ -88,6 +88,12 @@ export async function POST(request: NextRequest) {
   let roundId: string | undefined;
   let formType: string | undefined;
 
+  // 0. Check URL query parameters (Fillout sends params on the webhook URL itself)
+  const searchParams = request.nextUrl.searchParams;
+  if (searchParams.has("campaign_id")) campaignId = searchParams.get("campaign_id")!;
+  if (searchParams.has("round_id")) roundId = searchParams.get("round_id")!;
+  if (searchParams.has("form_type")) formType = searchParams.get("form_type")!;
+
   // 1. Check urlParameters array
   if (Array.isArray(body.urlParameters)) {
     campaignId = findInArray(body.urlParameters, "campaign_id");
