@@ -10,7 +10,11 @@ export async function GET(request: NextRequest) {
     const client = createXeroClient();
     await client.initialize();
 
-    const callbackUrl = request.url;
+    // Reconstruct the callback URL using the public base URL
+    // (request.url on Vercel may use an internal hostname)
+    const params = request.nextUrl.searchParams.toString();
+    const callbackUrl = `${baseUrl}/api/xero/callback?${params}`;
+
     const tokenSet = await client.apiCallback(callbackUrl);
 
     await client.updateTenants();
