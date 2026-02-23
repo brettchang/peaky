@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { Placement } from "@/lib/types";
 
 interface OnboardingFormProps {
@@ -31,14 +31,74 @@ export function OnboardingForm({
     }
     return initial;
   });
+  const [links, setLinks] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const p of placements) {
+      initial[p.id] = p.linkToPlacement || "";
+    }
+    return initial;
+  });
+  const [logoUrls, setLogoUrls] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const p of placements) {
+      if (p.logoUrl) initial[p.id] = p.logoUrl;
+    }
+    return initial;
+  });
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const p of placements) {
+      if (p.imageUrl) initial[p.id] = p.imageUrl;
+    }
+    return initial;
+  });
+  const [uploading, setUploading] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [submittedNow, setSubmittedNow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const isReadOnly = !editable || submittedNow;
 
   function updateBrief(placementId: string, value: string) {
     setBriefs((prev) => ({ ...prev, [placementId]: value }));
+  }
+
+  function updateLink(placementId: string, value: string) {
+    setLinks((prev) => ({ ...prev, [placementId]: value }));
+  }
+
+  async function handleFileUpload(
+    placementId: string,
+    field: "logoUrl" | "imageUrl",
+    file: File
+  ) {
+    setUploading((prev) => ({ ...prev, [`${placementId}-${field}`]: field }));
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("campaignId", campaignId);
+      formData.append("placementId", placementId);
+      formData.append("field", field);
+
+      const res = await fetch("/api/upload-placement-asset", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      if (field === "logoUrl") {
+        setLogoUrls((prev) => ({ ...prev, [placementId]: data.url }));
+      } else {
+        setImageUrls((prev) => ({ ...prev, [placementId]: data.url }));
+      }
+    } catch {
+      setError("Failed to upload file. Please try again.");
+    } finally {
+      setUploading((prev) => ({ ...prev, [`${placementId}-${field}`]: null }));
+    }
   }
 
   function getPayload() {
@@ -50,6 +110,7 @@ export function OnboardingForm({
       placementBriefs: placements.map((p) => ({
         placementId: p.id,
         brief: briefs[p.id] || "",
+        link: links[p.id] || "",
       })),
     };
   }
@@ -147,11 +208,11 @@ export function OnboardingForm({
           <textarea
             value={messaging}
             onChange={(e) => setMessaging(e.target.value)}
-            readOnly={!editable || submittedNow}
+            readOnly={isReadOnly}
             placeholder="Describe your key messages, value proposition, and what makes your product/service unique..."
             rows={4}
             className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-              !editable || submittedNow
+              isReadOnly
                 ? "border-gray-100 bg-gray-50 text-gray-600"
                 : "border-gray-300 bg-white"
             }`}
@@ -165,11 +226,11 @@ export function OnboardingForm({
           <textarea
             value={desiredAction}
             onChange={(e) => setDesiredAction(e.target.value)}
-            readOnly={!editable || submittedNow}
+            readOnly={isReadOnly}
             placeholder="e.g., Sign up for a free trial, Visit our website, Download the report..."
             rows={3}
             className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-              !editable || submittedNow
+              isReadOnly
                 ? "border-gray-100 bg-gray-50 text-gray-600"
                 : "border-gray-300 bg-white"
             }`}
@@ -181,59 +242,215 @@ export function OnboardingForm({
       {placements.length > 0 && (
         <div className="mt-8">
           <h3 className="text-sm font-semibold text-gray-700">
-            Per-Placement Briefs
+            Per-Placement Details
           </h3>
           <p className="mt-1 text-xs text-gray-500">
-            Optionally provide specific direction for each placement.
+            Provide a link, brief, and any required assets for each placement.
           </p>
 
           <div className="mt-3 space-y-4">
-            {placements.map((p) => (
-              <div
-                key={p.id}
-                className="rounded-lg border border-gray-100 bg-gray-50 p-4"
-              >
-                <div className="mb-2 flex items-center gap-2 text-sm">
-                  <span className="font-medium text-gray-900">{p.type}</span>
-                  <span className="text-gray-400">&middot;</span>
-                  <span className="text-gray-500">{p.publication}</span>
-                  {p.scheduledDate && (
-                    <>
-                      <span className="text-gray-400">&middot;</span>
-                      <span className="text-gray-500">
-                        {new Date(
-                          p.scheduledDate + "T00:00:00"
-                        ).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </>
+            {placements.map((p) => {
+              const isPrimary = p.type === "Primary";
+              return (
+                <div
+                  key={p.id}
+                  className="rounded-lg border border-gray-100 bg-gray-50 p-4"
+                >
+                  <div className="mb-3 flex items-center gap-2 text-sm">
+                    <span className="font-medium text-gray-900">{p.type}</span>
+                    <span className="text-gray-400">&middot;</span>
+                    <span className="text-gray-500">{p.publication}</span>
+                    {p.scheduledDate && (
+                      <>
+                        <span className="text-gray-400">&middot;</span>
+                        <span className="text-gray-500">
+                          {new Date(
+                            p.scheduledDate + "T00:00:00"
+                          ).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Link field */}
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Link URL
+                    </label>
+                    <input
+                      type="url"
+                      value={links[p.id] || ""}
+                      onChange={(e) => updateLink(p.id, e.target.value)}
+                      readOnly={isReadOnly}
+                      placeholder="https://..."
+                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+                        isReadOnly
+                          ? "border-gray-100 bg-white/50 text-gray-600"
+                          : "border-gray-200 bg-white"
+                      }`}
+                    />
+                  </div>
+
+                  {/* Brief */}
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Brief
+                    </label>
+                    <textarea
+                      value={briefs[p.id] || ""}
+                      onChange={(e) => updateBrief(p.id, e.target.value)}
+                      readOnly={isReadOnly}
+                      placeholder="Describe what you'd like for this placement..."
+                      rows={2}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+                        isReadOnly
+                          ? "border-gray-100 bg-white/50 text-gray-600"
+                          : "border-gray-200 bg-white"
+                      }`}
+                    />
+                  </div>
+
+                  {/* Primary-only: logo + story image uploads */}
+                  {isPrimary && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Logo upload */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Logo
+                        </label>
+                        {logoUrls[p.id] ? (
+                          <div className="relative">
+                            <img
+                              src={logoUrls[p.id]}
+                              alt="Logo"
+                              className="h-16 rounded border border-gray-200 bg-white object-contain p-1"
+                            />
+                            {!isReadOnly && (
+                              <button
+                                onClick={() => {
+                                  setLogoUrls((prev) => {
+                                    const next = { ...prev };
+                                    delete next[p.id];
+                                    return next;
+                                  });
+                                }}
+                                className="mt-1 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Replace
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              ref={(el) => {
+                                fileRefs.current[`${p.id}-logo`] = el;
+                              }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(p.id, "logoUrl", file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              onClick={() =>
+                                fileRefs.current[`${p.id}-logo`]?.click()
+                              }
+                              disabled={
+                                isReadOnly ||
+                                !!uploading[`${p.id}-logoUrl`]
+                              }
+                              className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-gray-400 hover:text-gray-700 disabled:opacity-50"
+                            >
+                              {uploading[`${p.id}-logoUrl`]
+                                ? "Uploading..."
+                                : "Upload Logo"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Story image upload */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          Story Image{" "}
+                          <span className="font-normal text-gray-400">
+                            (600 x 340)
+                          </span>
+                        </label>
+                        {imageUrls[p.id] ? (
+                          <div className="relative">
+                            <img
+                              src={imageUrls[p.id]}
+                              alt="Story image"
+                              className="h-16 rounded border border-gray-200 bg-white object-cover"
+                            />
+                            {!isReadOnly && (
+                              <button
+                                onClick={() => {
+                                  setImageUrls((prev) => {
+                                    const next = { ...prev };
+                                    delete next[p.id];
+                                    return next;
+                                  });
+                                }}
+                                className="mt-1 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Replace
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              ref={(el) => {
+                                fileRefs.current[`${p.id}-image`] = el;
+                              }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file)
+                                  handleFileUpload(p.id, "imageUrl", file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              onClick={() =>
+                                fileRefs.current[`${p.id}-image`]?.click()
+                              }
+                              disabled={
+                                isReadOnly ||
+                                !!uploading[`${p.id}-imageUrl`]
+                              }
+                              className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-gray-400 hover:text-gray-700 disabled:opacity-50"
+                            >
+                              {uploading[`${p.id}-imageUrl`]
+                                ? "Uploading..."
+                                : "Upload Image"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
-                <textarea
-                  value={briefs[p.id] || ""}
-                  onChange={(e) => updateBrief(p.id, e.target.value)}
-                  readOnly={!editable || submittedNow}
-                  placeholder="Describe what you'd like for this placement..."
-                  rows={2}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-                    !editable || submittedNow
-                      ? "border-gray-100 bg-white/50 text-gray-600"
-                      : "border-gray-200 bg-white"
-                  }`}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* Error */}
-      {error && (
-        <p className="mt-4 text-sm text-red-600">{error}</p>
-      )}
+      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
       {/* Saved message */}
       {savedMessage && (

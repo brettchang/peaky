@@ -558,7 +558,7 @@ export async function saveOnboardingForm(
   data: {
     messaging?: string;
     desiredAction?: string;
-    placementBriefs?: { placementId: string; brief: string }[];
+    placementBriefs?: { placementId: string; brief: string; link?: string }[];
   }
 ): Promise<boolean> {
   // Save campaign-level fields
@@ -570,12 +570,18 @@ export async function saveOnboardingForm(
     })
     .where(eq(schema.campaigns.id, campaignId));
 
-  // Save per-placement briefs
+  // Save per-placement briefs and links
   if (data.placementBriefs) {
-    for (const { placementId, brief } of data.placementBriefs) {
+    for (const { placementId, brief, link } of data.placementBriefs) {
+      const updates: Record<string, string | null> = {
+        onboardingBrief: brief || null,
+      };
+      if (link !== undefined) {
+        updates.linkToPlacement = link || null;
+      }
       await db
         .update(schema.placements)
-        .set({ onboardingBrief: brief || null })
+        .set(updates)
         .where(
           and(
             eq(schema.placements.id, placementId),
@@ -593,7 +599,7 @@ export async function submitOnboardingForm(
   data: {
     messaging: string;
     desiredAction: string;
-    placementBriefs: { placementId: string; brief: string }[];
+    placementBriefs: { placementId: string; brief: string; link?: string }[];
   }
 ): Promise<boolean> {
   await saveOnboardingForm(campaignId, data);
