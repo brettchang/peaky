@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT } from "@/lib/ai";
+import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT } from "@/lib/ai-constants";
 
 export function AiPromptEditor({
   currentPrompt,

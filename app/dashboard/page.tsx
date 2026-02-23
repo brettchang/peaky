@@ -4,7 +4,7 @@ import { getAllCampaignsWithClients, getSetting } from "@/lib/db";
 import { DashboardViewToggle } from "@/components/DashboardViewToggle";
 import { CreateCampaignForm } from "@/components/CreateCampaignForm";
 import { AiPromptEditor } from "@/components/AiPromptEditor";
-import { AI_COPY_PROMPT_KEY } from "@/lib/ai";
+import { AI_COPY_PROMPT_KEY } from "@/lib/ai-constants";
 
 export const dynamic = "force-dynamic";
 
