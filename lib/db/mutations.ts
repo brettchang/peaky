@@ -618,6 +618,19 @@ export async function submitOnboardingForm(
 ): Promise<boolean> {
   await saveOnboardingForm(campaignId, data);
 
+  // Assign any unassigned placements to this round
+  for (const { placementId } of data.placementBriefs) {
+    await db
+      .update(schema.placements)
+      .set({ onboardingRoundId: roundId })
+      .where(
+        and(
+          eq(schema.placements.id, placementId),
+          eq(schema.placements.campaignId, campaignId)
+        )
+      );
+  }
+
   // Mark the round complete
   await db
     .update(schema.onboardingRounds)

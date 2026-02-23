@@ -46,10 +46,29 @@ export default async function CampaignPage({ params }: PageProps) {
     ),
   }));
 
+  // Placements not assigned to any round
+  const unassignedPlacements = campaign.placements.filter(
+    (p) => !p.onboardingRoundId
+  );
+
   // Incomplete rounds that still need the client to fill out
-  const incompleteRounds = rounds.filter((r) => !r.round.complete && r.placements.length > 0);
+  let incompleteRounds = rounds.filter((r) => !r.round.complete && r.placements.length > 0);
   // Completed rounds
   const completedRounds = rounds.filter((r) => r.round.complete && r.placements.length > 0);
+
+  // If there are unassigned placements and no incomplete rounds have placements,
+  // pair them with an empty incomplete round so the form still renders
+  if (unassignedPlacements.length > 0 && incompleteRounds.length === 0) {
+    const emptyIncompleteRound = campaign.onboardingRounds.find(
+      (r) => !r.complete
+    );
+    if (emptyIncompleteRound) {
+      incompleteRounds = [{
+        round: emptyIncompleteRound,
+        placements: unassignedPlacements,
+      }];
+    }
+  }
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">

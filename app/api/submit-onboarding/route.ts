@@ -7,9 +7,14 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { campaignId, portalId, roundId, messaging, desiredAction, placementBriefs } = body;
 
-  if (!campaignId || !portalId || !roundId) {
+  const missing = [
+    !campaignId && "campaignId",
+    !portalId && "portalId",
+    !roundId && "roundId",
+  ].filter(Boolean);
+  if (missing.length > 0) {
     return NextResponse.json(
-      { error: "campaignId, portalId, and roundId are required" },
+      { error: `Missing required fields: ${missing.join(", ")}` },
       { status: 400 }
     );
   }

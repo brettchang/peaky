@@ -91,15 +91,15 @@ export function OnboardingForm({
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
       if (field === "logoUrl") {
         setLogoUrls((prev) => ({ ...prev, [placementId]: data.url }));
       } else {
         setImageUrls((prev) => ({ ...prev, [placementId]: data.url }));
       }
-    } catch {
-      setError("Failed to upload file. Please try again.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to upload file. Please try again.");
     } finally {
       setUploading((prev) => ({ ...prev, [`${placementId}-${field}`]: null }));
     }
