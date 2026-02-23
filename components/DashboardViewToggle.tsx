@@ -4,8 +4,9 @@ import { useState } from "react";
 import { DashboardCampaign } from "@/lib/types";
 import { DashboardTable } from "@/components/DashboardTable";
 import { CalendarView } from "@/components/CalendarView";
+import { AdminPlacementDashboard } from "@/components/AdminPlacementDashboard";
 
-type View = "table" | "calendar";
+type View = "table" | "calendar" | "placements";
 
 export function DashboardViewToggle({
   data,
@@ -40,13 +41,25 @@ export function DashboardViewToggle({
         >
           Calendar
         </button>
+        <button
+          onClick={() => setView("placements")}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            view === "placements"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Placements
+        </button>
       </div>
 
       {/* View */}
       {view === "table" ? (
         <DashboardTable data={data} baseUrl={baseUrl} />
-      ) : (
+      ) : view === "calendar" ? (
         <CalendarView data={data} />
+      ) : (
+        <AdminPlacementDashboard data={data} />
       )}
     </div>
   );
