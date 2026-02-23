@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   // Upload to Vercel Blob
   const pathname = `onboarding/${campaignId}/${Date.now()}-${file.name}`;
-  const blob = await put(pathname, file, { access: "public" });
+  const blob = await put(pathname, file, { access: "private" });
 
   if (type === "round") {
     // Set the onboardingDocUrl on the round

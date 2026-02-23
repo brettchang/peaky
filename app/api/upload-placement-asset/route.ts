@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     const pathname = `placements/${campaignId}/${placementId}/${field}-${Date.now()}-${file.name}`;
-    const blob = await put(pathname, file, { access: "public" });
+    const blob = await put(pathname, file, { access: "private" });
 
     await db
       .update(schema.placements)
