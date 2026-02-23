@@ -539,6 +539,15 @@ export async function bulkSchedulePlacements(
   };
 }
 
+// ─── Campaign deletion ───────────────────────────────────────
+
+export async function deleteCampaign(campaignId: string): Promise<boolean> {
+  const result = await db
+    .delete(schema.campaigns)
+    .where(eq(schema.campaigns.id, campaignId));
+  return (result.rowCount ?? 0) > 0;
+}
+
 // ─── Settings mutations ──────────────────────────────────────
 
 export async function upsertSetting(key: string, value: string): Promise<void> {

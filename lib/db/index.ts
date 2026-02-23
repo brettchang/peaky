@@ -43,4 +43,5 @@ export {
   saveOnboardingForm,
   submitOnboardingForm,
   upsertSetting,
+  deleteCampaign,
 } from "./mutations";

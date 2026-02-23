@@ -33,6 +33,8 @@ export function CampaignMetadataEditor({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [form, setForm] = useState({
     name: campaign.name,
     status: campaign.status,
@@ -181,12 +183,53 @@ export function CampaignMetadataEditor({
         <h3 className="text-sm font-semibold text-gray-900">
           Campaign Details
         </h3>
-        <button
-          onClick={() => setEditing(true)}
-          className="text-xs font-medium text-gray-500 hover:text-gray-700"
-        >
-          Edit
-        </button>
+        <div className="flex items-center gap-3">
+          {confirmDelete ? (
+            <span className="flex items-center gap-2">
+              <span className="text-xs text-red-600">Delete this campaign?</span>
+              <button
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    const res = await fetch("/api/delete-campaign", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ campaignId }),
+                    });
+                    if (res.ok) {
+                      router.push("/dashboard");
+                    }
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={deleting}
+                className="text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Yes, delete"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs font-medium text-red-400 hover:text-red-600"
+            >
+              Delete
+            </button>
+          )}
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs font-medium text-gray-500 hover:text-gray-700"
+          >
+            Edit
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
         {campaign.campaignManager && (
