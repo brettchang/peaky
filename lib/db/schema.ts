@@ -198,6 +198,14 @@ export const billingOnboardingRelations = relations(
   })
 );
 
+// ─── App Settings ──────────────────────────────────────────
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
 // ─── Xero Connections ──────────────────────────────────────
 
 export const xeroConnections = pgTable("xero_connections", {

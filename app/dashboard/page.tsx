@@ -1,8 +1,10 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { getAllCampaignsWithClients } from "@/lib/db";
+import { getAllCampaignsWithClients, getSetting } from "@/lib/db";
 import { DashboardViewToggle } from "@/components/DashboardViewToggle";
 import { CreateCampaignForm } from "@/components/CreateCampaignForm";
+import { AiPromptEditor } from "@/components/AiPromptEditor";
+import { AI_COPY_PROMPT_KEY } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const data = await getAllCampaignsWithClients();
+  const [data, currentPrompt] = await Promise.all([
+    getAllCampaignsWithClients(),
+    getSetting(AI_COPY_PROMPT_KEY),
+  ]);
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
 
   return (
@@ -35,6 +40,7 @@ export default async function DashboardPage() {
           <CreateCampaignForm />
         </div>
       </div>
+      <AiPromptEditor currentPrompt={currentPrompt} />
       <DashboardViewToggle data={data} baseUrl={baseUrl} />
     </div>
   );

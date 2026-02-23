@@ -19,6 +19,7 @@ export {
   getPlacementInvoiceLinks,
   getAllInvoiceLinks,
   getCapacityForDateRange,
+  getSetting,
 } from "./queries";
 
 export {
@@ -41,4 +42,5 @@ export {
   bulkSchedulePlacements,
   saveOnboardingForm,
   submitOnboardingForm,
+  upsertSetting,
 } from "./mutations";

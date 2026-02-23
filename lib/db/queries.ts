@@ -474,6 +474,15 @@ export async function getAllInvoiceLinks(): Promise<InvoiceLinkWithCampaign[]> {
   return links;
 }
 
+// ─── App settings queries ────────────────────────────────────
+
+export async function getSetting(key: string): Promise<string | null> {
+  const row = await db.query.appSettings.findFirst({
+    where: eq(schema.appSettings.key, key),
+  });
+  return row?.value ?? null;
+}
+
 // ─── Capacity / scheduling queries ──────────────────────────
 
 function getWeekdaysInRange(start: string, end: string): string[] {

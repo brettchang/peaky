@@ -539,6 +539,18 @@ export async function bulkSchedulePlacements(
   };
 }
 
+// ─── Settings mutations ──────────────────────────────────────
+
+export async function upsertSetting(key: string, value: string): Promise<void> {
+  await db
+    .insert(schema.appSettings)
+    .values({ key, value, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: schema.appSettings.key,
+      set: { value, updatedAt: new Date() },
+    });
+}
+
 // ─── Onboarding mutations ────────────────────────────────────
 
 export async function saveOnboardingForm(
