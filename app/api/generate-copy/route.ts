@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { campaignId } = body;
+  const { campaignId, roundId } = body;
 
   if (!campaignId) {
     return NextResponse.json(
@@ -39,8 +39,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Filter to placements that need copy, optionally scoped to a round
   const placementsWithBriefs = campaign.placements
-    .filter((p) => p.copyVersion === 0)
+    .filter((p) => {
+      if (p.copyVersion > 0) return false;
+      if (roundId && p.onboardingRoundId !== roundId) return false;
+      return true;
+    })
     .map((p) => ({
       id: p.id,
       type: p.type,
@@ -69,8 +74,11 @@ export async function POST(request: NextRequest) {
     await updatePlacementStatus(campaignId, placementId, "Copywriting in Progress");
   }
 
-  // Transition campaign to Active
-  await updateCampaignMetadata(campaignId, { status: "Active" });
+  // Check if all rounds are complete — if so, transition to Active
+  const allRoundsComplete = campaign.onboardingRounds.every((r) => r.complete);
+  if (allRoundsComplete || !roundId) {
+    await updateCampaignMetadata(campaignId, { status: "Active" });
+  }
 
   revalidatePath("/dashboard", "layout");
   revalidatePath("/portal", "layout");

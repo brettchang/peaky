@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function GenerateCopyButton({ campaignId }: { campaignId: string }) {
+export function GenerateCopyButton({ campaignId, roundId }: { campaignId: string; roundId?: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export function GenerateCopyButton({ campaignId }: { campaignId: string }) {
       const res = await fetch("/api/generate-copy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId }),
+        body: JSON.stringify({ campaignId, roundId }),
       });
       if (!res.ok) {
         const data = await res.json();

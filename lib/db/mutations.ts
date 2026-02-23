@@ -197,6 +197,9 @@ export function createCampaign(data: {
       complete: false,
     });
 
+    // Create initial onboarding round
+    const firstRound = await createOnboardingRound(campaignId, "Initial Round");
+
     // Auto-create placements from ad line items
     if (data.adLineItems) {
       for (const lineItem of data.adLineItems) {
@@ -205,6 +208,7 @@ export function createCampaign(data: {
             type: lineItem.type,
             publication: "The Peak",
             status: "New Campaign",
+            onboardingRoundId: firstRound?.id,
           });
         }
       }
@@ -605,6 +609,7 @@ export async function saveOnboardingForm(
 
 export async function submitOnboardingForm(
   campaignId: string,
+  roundId: string,
   data: {
     messaging: string;
     desiredAction: string;
@@ -613,13 +618,31 @@ export async function submitOnboardingForm(
 ): Promise<boolean> {
   await saveOnboardingForm(campaignId, data);
 
+  // Mark the round complete
   await db
-    .update(schema.campaigns)
-    .set({
-      onboardingSubmittedAt: new Date(),
-      status: "Onboarding Form Complete" satisfies CampaignStatus,
-    })
-    .where(eq(schema.campaigns.id, campaignId));
+    .update(schema.onboardingRounds)
+    .set({ complete: true })
+    .where(eq(schema.onboardingRounds.id, roundId));
+
+  // Set campaign-level submitted timestamp (first submission) and transition status
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  if (campaign) {
+    const updates: Record<string, unknown> = {};
+    if (!campaign.onboardingSubmittedAt) {
+      updates.onboardingSubmittedAt = new Date();
+    }
+    if (campaign.status === "Waiting on Onboarding") {
+      updates.status = "Onboarding Form Complete" satisfies CampaignStatus;
+    }
+    if (Object.keys(updates).length > 0) {
+      await db
+        .update(schema.campaigns)
+        .set(updates)
+        .where(eq(schema.campaigns.id, campaignId));
+    }
+  }
 
   return true;
 }

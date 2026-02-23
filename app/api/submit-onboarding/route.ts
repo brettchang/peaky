@@ -5,11 +5,11 @@ import { isOnboardingEditable } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { campaignId, portalId, messaging, desiredAction, placementBriefs } = body;
+  const { campaignId, portalId, roundId, messaging, desiredAction, placementBriefs } = body;
 
-  if (!campaignId || !portalId) {
+  if (!campaignId || !portalId || !roundId) {
     return NextResponse.json(
-      { error: "campaignId and portalId are required" },
+      { error: "campaignId, portalId, and roundId are required" },
       { status: 400 }
     );
   }
@@ -35,18 +35,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await submitOnboardingForm(campaignId, {
+  await submitOnboardingForm(campaignId, roundId, {
     messaging,
     desiredAction,
     placementBriefs: placementBriefs || [],
   });
 
-  // Fire-and-forget: trigger AI copy generation
+  // Fire-and-forget: trigger AI copy generation for this round
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
   fetch(`${baseUrl}/api/generate-copy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ campaignId }),
+    body: JSON.stringify({ campaignId, roundId }),
   }).catch(() => {
     // AI generation is best-effort; don't block the response
   });

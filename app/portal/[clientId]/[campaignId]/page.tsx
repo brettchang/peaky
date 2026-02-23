@@ -34,14 +34,22 @@ export default async function CampaignPage({ params }: PageProps) {
 
   const { client, campaign } = data;
   const editable = isOnboardingEditable(campaign);
-  const showOnboardingForm =
-    campaign.status === "Waiting on Onboarding" ||
-    campaign.status === "Onboarding Form Complete";
-  const showCopyReview =
-    campaign.status !== "Waiting on Onboarding";
   const hasPlacementsWithCopy = campaign.placements.some(
     (p) => p.currentCopy && p.copyVersion > 0
   );
+
+  // Build per-round data: each round with its assigned placements
+  const rounds = campaign.onboardingRounds.map((round) => ({
+    round,
+    placements: campaign.placements.filter(
+      (p) => p.onboardingRoundId === round.id
+    ),
+  }));
+
+  // Incomplete rounds that still need the client to fill out
+  const incompleteRounds = rounds.filter((r) => !r.round.complete && r.placements.length > 0);
+  // Completed rounds
+  const completedRounds = rounds.filter((r) => r.round.complete && r.placements.length > 0);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
@@ -55,37 +63,39 @@ export default async function CampaignPage({ params }: PageProps) {
         </p>
       </div>
 
-      {/* Onboarding Form */}
-      {showOnboardingForm && (
-        <div className="mb-10">
+      {/* Onboarding Forms — one per incomplete round */}
+      {incompleteRounds.map(({ round, placements: roundPlacements }) => (
+        <div key={round.id} className="mb-10">
           <OnboardingForm
             campaignId={campaign.id}
-
             clientPortalId={client.portalId}
-            placements={campaign.placements}
+            roundId={round.id}
+            roundLabel={round.label}
+            placements={roundPlacements}
             initialMessaging={campaign.onboardingMessaging}
             initialDesiredAction={campaign.onboardingDesiredAction}
             editable={editable}
-            submitted={!!campaign.onboardingSubmittedAt}
+            submitted={false}
           />
         </div>
-      )}
+      ))}
 
-      {/* Read-only onboarding summary for active+ campaigns */}
-      {!showOnboardingForm && campaign.onboardingSubmittedAt && (
-        <div className="mb-10">
+      {/* Completed rounds — read-only */}
+      {completedRounds.map(({ round, placements: roundPlacements }) => (
+        <div key={round.id} className="mb-10">
           <OnboardingForm
             campaignId={campaign.id}
-
             clientPortalId={client.portalId}
-            placements={campaign.placements}
+            roundId={round.id}
+            roundLabel={round.label}
+            placements={roundPlacements}
             initialMessaging={campaign.onboardingMessaging}
             initialDesiredAction={campaign.onboardingDesiredAction}
             editable={false}
             submitted={true}
           />
         </div>
-      )}
+      ))}
 
       {/* Copy being prepared message */}
       {campaign.status === "Onboarding Form Complete" && !hasPlacementsWithCopy && (
@@ -100,7 +110,7 @@ export default async function CampaignPage({ params }: PageProps) {
       )}
 
       {/* Placement copy review sections */}
-      {showCopyReview && hasPlacementsWithCopy && (
+      {hasPlacementsWithCopy && (
         <div className="space-y-10">
           {campaign.placements
             .filter((p) => p.currentCopy && p.copyVersion > 0)

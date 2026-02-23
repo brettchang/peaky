@@ -6,6 +6,8 @@ import type { Placement } from "@/lib/types";
 interface OnboardingFormProps {
   campaignId: string;
   clientPortalId: string;
+  roundId: string;
+  roundLabel?: string;
   placements: Placement[];
   initialMessaging?: string;
   initialDesiredAction?: string;
@@ -16,6 +18,8 @@ interface OnboardingFormProps {
 export function OnboardingForm({
   campaignId,
   clientPortalId,
+  roundId,
+  roundLabel,
   placements,
   initialMessaging,
   initialDesiredAction,
@@ -105,6 +109,7 @@ export function OnboardingForm({
     return {
       campaignId,
       portalId: clientPortalId,
+      roundId,
       messaging,
       desiredAction,
       placementBriefs: placements.map((p) => ({
@@ -166,10 +171,10 @@ export function OnboardingForm({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-900">
-        Help us create your ad copy
+        {roundLabel || "Help us create your ad copy"}
       </h2>
       <p className="mt-1 text-sm text-gray-500">
-        Tell us about your campaign and we&apos;ll draft copy for each placement.
+        Tell us about your campaign and we&apos;ll draft copy for {placements.length === 1 ? "this placement" : `these ${placements.length} placements`}.
       </p>
 
       {/* Read-only banner */}

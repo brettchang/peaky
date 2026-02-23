@@ -101,44 +101,64 @@ export default async function CampaignDetailPage({
         portalUrl={portalUrl}
       />
 
-      {/* Client Onboarding Briefs */}
-      {campaign.onboardingSubmittedAt && (
-        <div className="mb-8">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Client Onboarding Brief</h3>
-          <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Overall Messaging</p>
-              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
-                {campaign.onboardingMessaging || "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Desired Action</p>
-              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
-                {campaign.onboardingDesiredAction || "—"}
-              </p>
-            </div>
-            {campaign.placements.some((p) => p.onboardingBrief) && (
+      {/* Client Onboarding Briefs — per round */}
+      {campaign.onboardingRounds.filter((r) => r.complete).length > 0 && (
+        <div className="mb-8 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Client Onboarding Briefs</h3>
+
+          {/* Campaign-level messaging (shared) */}
+          {campaign.onboardingMessaging && (
+            <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
               <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Per-Placement Briefs</p>
-                <div className="space-y-2">
-                  {campaign.placements
-                    .filter((p) => p.onboardingBrief)
-                    .map((p) => (
-                      <div key={p.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
-                        <span className="text-xs font-medium text-gray-600">{p.type} &middot; {p.publication}</span>
-                        <p className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap">{p.onboardingBrief}</p>
-                      </div>
-                    ))}
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Overall Messaging</p>
+                <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                  {campaign.onboardingMessaging}
+                </p>
+              </div>
+              {campaign.onboardingDesiredAction && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Desired Action</p>
+                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                    {campaign.onboardingDesiredAction}
+                  </p>
                 </div>
-              </div>
-            )}
-            {campaign.status === "Onboarding Form Complete" && (
-              <div className="pt-2 border-t border-gray-100">
-                <GenerateCopyButton campaignId={campaign.id} />
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
+
+          {/* Per-round briefs */}
+          {campaign.onboardingRounds
+            .filter((r) => r.complete)
+            .map((round) => {
+              const roundPlacements = campaign.placements.filter(
+                (p) => p.onboardingRoundId === round.id
+              );
+              const hasUngenerated = roundPlacements.some((p) => p.copyVersion === 0);
+              return (
+                <div key={round.id} className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    {round.label || round.id}
+                  </p>
+                  {roundPlacements.filter((p) => p.onboardingBrief).length > 0 && (
+                    <div className="space-y-2">
+                      {roundPlacements
+                        .filter((p) => p.onboardingBrief)
+                        .map((p) => (
+                          <div key={p.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                            <span className="text-xs font-medium text-gray-600">{p.type} &middot; {p.publication}</span>
+                            <p className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap">{p.onboardingBrief}</p>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  {hasUngenerated && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <GenerateCopyButton campaignId={campaign.id} roundId={round.id} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
 
