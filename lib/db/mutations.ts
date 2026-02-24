@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 import { db } from "./index";
 import * as schema from "./schema";
@@ -71,27 +71,41 @@ export async function updatePlacementCopy(
   const placement = await getPlacement(campaignId, placementId);
   if (!placement) return false;
 
-  // Insert current copy into revision history
-  await db.insert(schema.copyVersions).values({
-    id: genId("cv"),
-    placementId,
-    version: placement.copyVersion,
-    copyText: placement.currentCopy,
-    revisionNotes: placement.revisionNotes,
-    createdAt: new Date(),
-  });
+  // No-op update: avoid creating redundant versions.
+  if (newCopy === placement.currentCopy) return true;
+
+  // Insert current copy into revision history. If legacy data already
+  // contains this version, skip the insert rather than failing the save.
+  await db
+    .insert(schema.copyVersions)
+    .values({
+      id: genId("cv"),
+      placementId,
+      version: placement.copyVersion,
+      copyText: placement.currentCopy,
+      revisionNotes: placement.revisionNotes,
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing({
+      target: [schema.copyVersions.placementId, schema.copyVersions.version],
+    });
 
   // Update placement with new copy
-  await db
+  const result = await db
     .update(schema.placements)
     .set({
       currentCopy: newCopy,
       copyVersion: placement.copyVersion + 1,
       revisionNotes: null,
     })
-    .where(eq(schema.placements.id, placementId));
+    .where(
+      and(
+        eq(schema.placements.id, placementId),
+        eq(schema.placements.campaignId, campaignId)
+      )
+    );
 
-  return true;
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function updatePlacementScheduledDate(
@@ -374,7 +388,6 @@ export async function publishPlacementToBeehiiv(
     .set({
       beehiivPostId,
       publishedAt: now,
-      status: "Done",
     })
     .where(eq(schema.placements.id, placementId));
 
@@ -571,7 +584,12 @@ export async function saveOnboardingForm(
   data: {
     messaging?: string;
     desiredAction?: string;
-    placementBriefs?: { placementId: string; brief: string; link?: string }[];
+    placementBriefs?: {
+      placementId: string;
+      brief: string;
+      link?: string;
+      scheduledDate?: string;
+    }[];
   }
 ): Promise<boolean> {
   // Save campaign-level fields
@@ -583,24 +601,90 @@ export async function saveOnboardingForm(
     })
     .where(eq(schema.campaigns.id, campaignId));
 
-  // Save per-placement briefs and links
+  // Save per-placement briefs, links, and onboarding-selected dates
   if (data.placementBriefs) {
-    for (const { placementId, brief, link } of data.placementBriefs) {
+    for (const { placementId, brief, link, scheduledDate } of data.placementBriefs) {
+      let canSetDate = false;
       const updates: Record<string, string | null> = {
         onboardingBrief: brief || null,
       };
       if (link !== undefined) {
         updates.linkToPlacement = link || null;
       }
+
+      if (scheduledDate !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
+          throw new Error(`Invalid date format for placement ${placementId}`);
+        }
+
+        const placement = await getPlacement(campaignId, placementId);
+        if (!placement) {
+          throw new Error(`Placement not found: ${placementId}`);
+        }
+
+        if (placement.scheduledDate && placement.scheduledDate !== scheduledDate) {
+          throw new Error(
+            `Placement ${placement.type} already has a scheduled date (${placement.scheduledDate})`
+          );
+        }
+
+        const dateObj = new Date(scheduledDate + "T00:00:00");
+        const dayOfWeek = dateObj.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+          throw new Error("Placement dates must be weekdays");
+        }
+
+        canSetDate = !placement.scheduledDate;
+
+        const limit = DAILY_CAPACITY_LIMITS[placement.type];
+        if (limit !== null && canSetDate) {
+          const existing = await db
+            .select({ id: schema.placements.id })
+            .from(schema.placements)
+            .where(
+              and(
+                eq(schema.placements.scheduledDate, scheduledDate),
+                eq(schema.placements.type, placement.type),
+                eq(schema.placements.publication, placement.publication)
+              )
+            );
+
+          if (existing.length >= limit) {
+            throw new Error(
+              `${placement.type} is full on ${scheduledDate} for ${placement.publication} (${existing.length}/${limit})`
+            );
+          }
+        }
+
+        if (canSetDate) {
+          updates.scheduledDate = scheduledDate;
+        }
+      }
+
+      const placementWhere = canSetDate
+        ? and(
+            eq(schema.placements.id, placementId),
+            eq(schema.placements.campaignId, campaignId),
+            isNull(schema.placements.scheduledDate)
+          )
+        : and(
+            eq(schema.placements.id, placementId),
+            eq(schema.placements.campaignId, campaignId)
+          );
+
       await db
         .update(schema.placements)
         .set(updates)
-        .where(
-          and(
-            eq(schema.placements.id, placementId),
-            eq(schema.placements.campaignId, campaignId)
-          )
-        );
+        .where(placementWhere);
+
+      if (scheduledDate !== undefined) {
+        const latest = await getPlacement(campaignId, placementId);
+        if (!latest || latest.scheduledDate !== scheduledDate) {
+          throw new Error(
+            `Failed to set placement date for ${placementId}; it may have been scheduled already`
+          );
+        }
+      }
     }
   }
 
@@ -613,7 +697,12 @@ export async function submitOnboardingForm(
   data: {
     messaging: string;
     desiredAction: string;
-    placementBriefs: { placementId: string; brief: string; link?: string }[];
+    placementBriefs: {
+      placementId: string;
+      brief: string;
+      link?: string;
+      scheduledDate?: string;
+    }[];
   }
 ): Promise<boolean> {
   await saveOnboardingForm(campaignId, data);

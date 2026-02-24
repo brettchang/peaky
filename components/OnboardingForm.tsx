@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
-import type { Placement } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import type { DateRangeCapacity, Placement } from "@/lib/types";
+import { DAILY_CAPACITY_LIMITS } from "@/lib/types";
 
 interface OnboardingFormProps {
   campaignId: string;
@@ -26,6 +27,7 @@ export function OnboardingForm({
   editable,
   submitted,
 }: OnboardingFormProps) {
+  const placementsNeedingDates = placements.filter((p) => !p.scheduledDate);
   const [messaging, setMessaging] = useState(initialMessaging || "");
   const [desiredAction, setDesiredAction] = useState(initialDesiredAction || "");
   const [briefs, setBriefs] = useState<Record<string, string>>(() => {
@@ -59,12 +61,52 @@ export function OnboardingForm({
   const [uploading, setUploading] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingDates, setLoadingDates] = useState(false);
+  const [capacity, setCapacity] = useState<DateRangeCapacity | null>(null);
+  const [selectedDates, setSelectedDates] = useState<Record<string, string>>({});
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [submittedNow, setSubmittedNow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isReadOnly = !editable || submittedNow;
+
+  useEffect(() => {
+    if (placementsNeedingDates.length === 0) return;
+
+    async function loadCapacity() {
+      setError(null);
+      setLoadingDates(true);
+      try {
+        const start = new Date();
+        const end = new Date();
+        end.setDate(end.getDate() + 90);
+
+        const startDate = formatDateForInput(start);
+        const endDate = formatDateForInput(end);
+
+        const res = await fetch(
+          `/api/schedule-capacity?startDate=${startDate}&endDate=${endDate}`
+        );
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to load date availability");
+        }
+        const data: DateRangeCapacity = await res.json();
+        setCapacity(data);
+      } catch (err: unknown) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load date availability"
+        );
+      } finally {
+        setLoadingDates(false);
+      }
+    }
+
+    loadCapacity();
+  }, [placementsNeedingDates.length]);
 
   function updateBrief(placementId: string, value: string) {
     setBriefs((prev) => ({ ...prev, [placementId]: value }));
@@ -116,8 +158,37 @@ export function OnboardingForm({
         placementId: p.id,
         brief: briefs[p.id] || "",
         link: links[p.id] || "",
+        scheduledDate: p.scheduledDate ? undefined : selectedDates[p.id] || undefined,
       })),
     };
+  }
+
+  function getAvailableDatesForPlacement(placement: Placement): { date: string; available: boolean }[] {
+    if (!capacity) return [];
+
+    const limit = DAILY_CAPACITY_LIMITS[placement.type];
+    return capacity.days.map((day) => {
+      if (limit === null) {
+        return { date: day.date, available: true };
+      }
+
+      const slot = day.slots.find(
+        (s) => s.publication === placement.publication && s.type === placement.type
+      );
+
+      const batchUsed = Object.entries(selectedDates).filter(([pid, selected]) => {
+        if (pid === placement.id || selected !== day.date) return false;
+        const p = placementsNeedingDates.find((candidate) => candidate.id === pid);
+        return (
+          p !== undefined &&
+          p.publication === placement.publication &&
+          p.type === placement.type
+        );
+      }).length;
+
+      const serverAvailable = slot?.available ?? 0;
+      return { date: day.date, available: serverAvailable - batchUsed > 0 };
+    });
   }
 
   async function handleSave() {
@@ -144,6 +215,24 @@ export function OnboardingForm({
   }
 
   async function handleSubmit() {
+    if (placementsNeedingDates.length > 0) {
+      if (loadingDates) {
+        setError("Date availability is still loading. Please try again in a moment.");
+        return;
+      }
+
+      if (!capacity) {
+        setError("Unable to load date availability. Please refresh and try again.");
+        return;
+      }
+
+      const missingDate = placementsNeedingDates.find((p) => !selectedDates[p.id]);
+      if (missingDate) {
+        setError("Please choose a date for each placement before submitting.");
+        return;
+      }
+    }
+
     if (!messaging.trim() || !desiredAction.trim()) {
       setError("Please fill in both campaign questions before submitting.");
       return;
@@ -280,6 +369,41 @@ export function OnboardingForm({
                       </>
                     )}
                   </div>
+
+                  {!p.scheduledDate && (
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                        Placement Date
+                      </label>
+                      <select
+                        value={selectedDates[p.id] || ""}
+                        onChange={(e) =>
+                          setSelectedDates((prev) => ({
+                            ...prev,
+                            [p.id]: e.target.value,
+                          }))
+                        }
+                        disabled={isReadOnly || loadingDates || !capacity}
+                        className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none ${
+                          isReadOnly
+                            ? "border-gray-100 bg-white/50 text-gray-600"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        <option value="">
+                          {loadingDates
+                            ? "Loading dates..."
+                            : "Select placement date..."}
+                        </option>
+                        {getAvailableDatesForPlacement(p).map(({ date, available }) => (
+                          <option key={date} value={date} disabled={!available}>
+                            {formatDateShort(date)}
+                            {!available ? " (full)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* Link field */}
                   <div className="mb-3">
@@ -483,4 +607,21 @@ export function OnboardingForm({
       )}
     </div>
   );
+}
+
+function formatDateForInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateShort(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

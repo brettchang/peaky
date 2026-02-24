@@ -215,7 +215,7 @@ Felix Health offers unlimited doctor visits for a flat $29/month — no insuranc
       type: "Primary",
       publication: "The Peak",
       scheduledDate: "2026-02-01",
-      status: "Done",
+      status: "Approved",
       onboardingRoundId: "round-002",
       currentCopy: `**What if your doctor was always just a tap away?**
 
@@ -252,7 +252,7 @@ Over 50,000 patients trust Felix Health for fast, reliable care.
       type: "Peak Picks",
       publication: "The Peak",
       scheduledDate: "2026-02-01",
-      status: "Done",
+      status: "Approved",
       onboardingRoundId: "round-002",
       currentCopy: `**Felix Health** — See a doctor in under 10 minutes, 24/7. No insurance needed. Plans from $29/mo. [Try it free →]`,
       copyVersion: 1,

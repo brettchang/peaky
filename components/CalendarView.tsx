@@ -6,16 +6,10 @@ import { DashboardCampaign, PlacementStatus } from "@/lib/types";
 
 const statusBarColor: Record<string, string> = {
   "New Campaign": "bg-gray-400",
-  "Onboarding Requested": "bg-gray-400",
   "Copywriting in Progress": "bg-amber-400",
   "Peak Team Review Complete": "bg-yellow-400",
   "Sent for Approval": "bg-blue-400",
   Approved: "bg-green-400",
-  "Debrief Needed": "bg-orange-400",
-  "Send Debrief": "bg-orange-400",
-  "Client Missed Placement": "bg-red-400",
-  Hold: "bg-red-400",
-  Done: "bg-purple-400",
 };
 
 function getBarColor(status: PlacementStatus): string {

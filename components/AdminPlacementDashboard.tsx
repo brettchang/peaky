@@ -5,17 +5,15 @@ import Link from "next/link";
 import { DashboardCampaign, PlacementStatus, Placement } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 
-type FilterTab = "All" | "Needs Action" | "In Review" | "Approved" | "Done" | "On Hold";
+type FilterTab = "All" | "Needs Action" | "In Review" | "Approved";
 
 const FILTER_STATUSES: Record<Exclude<FilterTab, "All">, PlacementStatus[]> = {
-  "Needs Action": ["New Campaign", "Onboarding Requested", "Copywriting in Progress"],
+  "Needs Action": ["New Campaign", "Copywriting in Progress"],
   "In Review": ["Peak Team Review Complete", "Sent for Approval"],
   Approved: ["Approved"],
-  Done: ["Done", "Debrief Needed", "Send Debrief"],
-  "On Hold": ["Hold", "Client Missed Placement"],
 };
 
-const TABS: FilterTab[] = ["All", "Needs Action", "In Review", "Approved", "Done", "On Hold"];
+const TABS: FilterTab[] = ["All", "Needs Action", "In Review", "Approved"];
 
 interface PlacementRow {
   clientName: string;

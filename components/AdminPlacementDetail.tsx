@@ -22,16 +22,10 @@ const PUBLICATIONS: Publication[] = ["The Peak", "Peak Money"];
 
 const PLACEMENT_STATUSES: PlacementStatus[] = [
   "New Campaign",
-  "Onboarding Requested",
   "Copywriting in Progress",
   "Peak Team Review Complete",
   "Sent for Approval",
   "Approved",
-  "Debrief Needed",
-  "Send Debrief",
-  "Client Missed Placement",
-  "Hold",
-  "Done",
 ];
 
 const CONFLICT_OPTIONS = [
@@ -71,6 +65,11 @@ export function AdminPlacementDetail({
     logoUrl: placement.logoUrl ?? "",
     notes: placement.notes ?? "",
   });
+  const [editingPlacementLink, setEditingPlacementLink] = useState(false);
+  const [placementLinkDraft, setPlacementLinkDraft] = useState(
+    placement.linkToPlacement ?? ""
+  );
+  const [savingPlacementLink, setSavingPlacementLink] = useState(false);
 
   // Copy editing state
   const [editedCopy, setEditedCopy] = useState<string | null>(null);
@@ -128,6 +127,39 @@ export function AdminPlacementDetail({
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handleEditPlacementLink() {
+    setPlacementLinkDraft(placement.linkToPlacement ?? "");
+    setEditingPlacementLink(true);
+  }
+
+  function handleCancelPlacementLink() {
+    setPlacementLinkDraft(placement.linkToPlacement ?? "");
+    setEditingPlacementLink(false);
+  }
+
+  async function handleSavePlacementLink() {
+    const nextLink = placementLinkDraft.trim();
+    setSavingPlacementLink(true);
+    try {
+      const res = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId: placement.id,
+          linkToPlacement: nextLink || null,
+        }),
+      });
+      if (res.ok) {
+        setForm((prev) => ({ ...prev, linkToPlacement: nextLink }));
+        setEditingPlacementLink(false);
+        router.refresh();
+      }
+    } finally {
+      setSavingPlacementLink(false);
     }
   }
 
@@ -439,6 +471,62 @@ export function AdminPlacementDetail({
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Placement link section */}
+      <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">
+            Placement Link
+          </h3>
+          {!editingPlacementLink && !editing && (
+            <button
+              onClick={handleEditPlacementLink}
+              className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {placement.linkToPlacement ? "Edit Link" : "Add Link"}
+            </button>
+          )}
+        </div>
+
+        {editingPlacementLink ? (
+          <div className="space-y-3">
+            <input
+              type="url"
+              value={placementLinkDraft}
+              onChange={(e) => setPlacementLinkDraft(e.target.value)}
+              placeholder="https://..."
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-700"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSavePlacementLink}
+                disabled={savingPlacementLink}
+                className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                {savingPlacementLink ? "Saving..." : "Save Link"}
+              </button>
+              <button
+                onClick={handleCancelPlacementLink}
+                disabled={savingPlacementLink}
+                className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : placement.linkToPlacement ? (
+          <a
+            href={placement.linkToPlacement}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-600 hover:text-blue-700"
+          >
+            {placement.linkToPlacement}
+          </a>
+        ) : (
+          <p className="text-sm text-gray-400">No link set yet.</p>
         )}
       </div>
 

@@ -1,16 +1,10 @@
 // === Notion Ad Calendar statuses (placement-level) ===
 export type PlacementStatus =
   | "New Campaign"
-  | "Onboarding Requested"
   | "Copywriting in Progress"
   | "Peak Team Review Complete"
   | "Sent for Approval"
-  | "Approved"
-  | "Debrief Needed"
-  | "Send Debrief"
-  | "Client Missed Placement"
-  | "Hold"
-  | "Done";
+  | "Approved";
 
 // === Notion Campaigns DB statuses (campaign-level) ===
 export type CampaignStatus =
@@ -24,9 +18,7 @@ export type CampaignStatus =
 export type ClientDisplayStatus =
   | "In Progress"
   | "Ready for Review"
-  | "Approved"
-  | "Published"
-  | "On Hold";
+  | "Approved";
 
 export function getClientDisplayStatus(status: PlacementStatus): ClientDisplayStatus {
   switch (status) {
@@ -34,12 +26,6 @@ export function getClientDisplayStatus(status: PlacementStatus): ClientDisplaySt
       return "Ready for Review";
     case "Approved":
       return "Approved";
-    case "Done":
-    case "Debrief Needed":
-    case "Send Debrief":
-      return "Published";
-    case "Hold":
-      return "On Hold";
     default:
       return "In Progress";
   }

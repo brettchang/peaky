@@ -256,16 +256,10 @@ export function AdminPlacementList({
                       >
                         {([
                           "New Campaign",
-                          "Onboarding Requested",
                           "Copywriting in Progress",
                           "Peak Team Review Complete",
                           "Sent for Approval",
                           "Approved",
-                          "Debrief Needed",
-                          "Send Debrief",
-                          "Client Missed Placement",
-                          "Hold",
-                          "Done",
                         ] as PlacementStatus[]).map((s) => (
                           <option key={s} value={s}>
                             {s}

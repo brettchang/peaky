@@ -6,9 +6,9 @@ import { ClientPlacementRow, PlacementStatus, getClientDisplayStatus } from "@/l
 import { StatusBadge } from "@/components/StatusBadge";
 import { PerformanceStats } from "@/components/PerformanceStats";
 
-type FilterTab = "All" | "Ready for Review" | "In Progress" | "Approved" | "Published";
+type FilterTab = "All" | "Ready for Review" | "In Progress" | "Approved";
 
-const FILTER_TABS: FilterTab[] = ["All", "Ready for Review", "In Progress", "Approved", "Published"];
+const FILTER_TABS: FilterTab[] = ["All", "Ready for Review", "In Progress", "Approved"];
 
 function matchesFilter(status: PlacementStatus, filter: FilterTab): boolean {
   if (filter === "All") return true;
@@ -62,7 +62,7 @@ export function PlacementDashboard({
           <tbody className="divide-y divide-gray-200 bg-white">
             {filtered.map((row) => {
               const displayStatus = getClientDisplayStatus(row.placement.status);
-              const hasStats = displayStatus === "Published" && row.placement.stats;
+              const hasStats = !!row.placement.stats;
               const isExpanded = expandedId === row.placement.id;
               return (
                 <>

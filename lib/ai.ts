@@ -29,6 +29,13 @@ const WORD_COUNTS: Record<PlacementType, string> = {
   "Podcast Ad": "60-90 words",
 };
 
+function applyTemplateVariables(
+  prompt: string,
+  vars: Record<string, string>
+): string {
+  return prompt.replace(/\{\{(\w+)\}\}/g, (match, key) => vars[key] ?? match);
+}
+
 export async function generateCopyForPlacements(input: {
   campaignName: string;
   clientName: string;
@@ -36,7 +43,14 @@ export async function generateCopyForPlacements(input: {
   desiredAction: string;
   placements: PlacementInput[];
 }): Promise<GeneratedCopy[]> {
-  const systemPrompt = await getSetting(AI_COPY_PROMPT_KEY) || DEFAULT_AI_COPY_PROMPT;
+  const rawPrompt = await getSetting(AI_COPY_PROMPT_KEY) || DEFAULT_AI_COPY_PROMPT;
+
+  const systemPrompt = applyTemplateVariables(rawPrompt, {
+    campaignName: input.campaignName,
+    clientName: input.clientName,
+    messaging: input.messaging,
+    desiredAction: input.desiredAction,
+  });
 
   const placementDescriptions = input.placements
     .map(
@@ -56,12 +70,7 @@ export async function generateCopyForPlacements(input: {
     messages: [
       {
         role: "user",
-        content: `Write ad copy for the following campaign:
-
-Campaign: ${input.campaignName}
-Client: ${input.clientName}
-Overall messaging: ${input.messaging}
-Desired reader action: ${input.desiredAction}
+        content: `Write ad copy for the following placements:
 
 ${placementDescriptions}
 

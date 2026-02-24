@@ -205,8 +205,8 @@ export function CopyReview({
         </div>
       )}
 
-      {/* Published — show performance stats if available */}
-      {displayStatus === "Published" && placement.stats && (
+      {/* Performance stats (if available) */}
+      {placement.stats && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-gray-700">
             Placement Performance

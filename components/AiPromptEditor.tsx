@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT } from "@/lib/ai-constants";
+import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT, AI_COPY_TEMPLATE_VARIABLES } from "@/lib/ai-constants";
 
 export function AiPromptEditor({
   currentPrompt,
@@ -62,7 +62,21 @@ export function AiPromptEditor({
         <div className="mt-3 space-y-3">
           <p className="text-xs text-gray-500">
             This prompt is sent as the system instruction when generating ad copy.
-            Campaign-specific inputs (messaging, briefs) are injected automatically.
+            Use template variables to reference onboarding form data:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {AI_COPY_TEMPLATE_VARIABLES.map((v) => (
+              <span
+                key={v.key}
+                title={v.description}
+                className="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-700"
+              >
+                {`{{${v.key}}}`}
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400">
+            Per-placement briefs and type/length are passed separately to each generation.
           </p>
           <textarea
             value={prompt}
