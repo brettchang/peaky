@@ -17,18 +17,22 @@ export function SendOnboardingEmailButton({
   recipientName?: string;
   portalCampaignUrl: string;
 }) {
-  const [sending, setSending] = useState(false);
+  const [sendingType, setSendingType] = useState<"onboarding" | "copywriting" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSend() {
+  async function handleSend(type: "onboarding" | "copywriting") {
     if (!recipientEmail) return;
 
-    setSending(true);
+    setSendingType(type);
     setMessage(null);
     setError(null);
     try {
-      const res = await fetch("/api/send-onboarding-email", {
+      const endpoint =
+        type === "onboarding"
+          ? "/api/send-onboarding-email"
+          : "/api/send-copywriting-update";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -42,26 +46,46 @@ export function SendOnboardingEmailButton({
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Failed to send onboarding email");
+        throw new Error(
+          data.error ||
+            (type === "onboarding"
+              ? "Failed to send onboarding email"
+              : "Failed to send copywriting update")
+        );
       }
-      setMessage("Onboarding email sent.");
+      setMessage(
+        type === "onboarding"
+          ? "Onboarding email sent."
+          : "Copywriting update sent."
+      );
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Failed to send onboarding email"
+        err instanceof Error
+          ? err.message
+          : type === "onboarding"
+            ? "Failed to send onboarding email"
+            : "Failed to send copywriting update"
       );
     } finally {
-      setSending(false);
+      setSendingType(null);
     }
   }
 
   return (
     <div className="flex items-center gap-2">
       <button
-        onClick={handleSend}
-        disabled={sending || !recipientEmail}
+        onClick={() => handleSend("onboarding")}
+        disabled={Boolean(sendingType) || !recipientEmail}
         className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {sending ? "Sending..." : "Send Onboarding Email"}
+        {sendingType === "onboarding" ? "Sending..." : "Send Onboarding Email"}
+      </button>
+      <button
+        onClick={() => handleSend("copywriting")}
+        disabled={Boolean(sendingType) || !recipientEmail}
+        className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {sendingType === "copywriting" ? "Sending..." : "Send Copywriting Update"}
       </button>
       {message && <span className="text-xs text-green-600">{message}</span>}
       {error && <span className="text-xs text-red-600">{error}</span>}
@@ -71,4 +95,3 @@ export function SendOnboardingEmailButton({
     </div>
   );
 }
-

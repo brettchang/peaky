@@ -9,7 +9,11 @@ export interface DashboardTask {
   campaignId: string;
   campaignName: string;
   clientName: string;
-  type: "copy-review" | "onboarding-reminder" | "billing-invoice";
+  type:
+    | "copy-review"
+    | "onboarding-reminder"
+    | "client-suggestion-review"
+    | "billing-invoice";
   title: string;
   detail: string;
   href: string;
@@ -158,6 +162,8 @@ function taskLabel(type: DashboardTask["type"]): string {
       return "Copy Review";
     case "billing-invoice":
       return "Invoicing";
+    case "client-suggestion-review":
+      return "Client Feedback";
     case "onboarding-reminder":
       return "Onboarding";
     default:
@@ -172,6 +178,8 @@ function taskCardClass(task: DashboardTask): string {
       return "border-blue-200 bg-blue-50";
     case "billing-invoice":
       return "border-emerald-200 bg-emerald-50";
+    case "client-suggestion-review":
+      return "border-fuchsia-200 bg-fuchsia-50";
     case "onboarding-reminder":
       return "border-amber-200 bg-amber-50";
     default:
@@ -186,6 +194,8 @@ function taskBadgeClass(task: DashboardTask): string {
       return "bg-blue-100 text-blue-700";
     case "billing-invoice":
       return "bg-emerald-100 text-emerald-700";
+    case "client-suggestion-review":
+      return "bg-fuchsia-100 text-fuchsia-700";
     case "onboarding-reminder":
       return "bg-amber-100 text-amber-700";
     default:

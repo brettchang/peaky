@@ -11,6 +11,26 @@ export function buildDashboardTasks(
 
   for (const { campaign, clientName } of data) {
     for (const placement of campaign.placements) {
+      if (placement.revisionNotes?.trim()) {
+        tasks.push({
+          id: `feedback-${placement.id}`,
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          clientName,
+          type: "client-suggestion-review",
+          title: `Review client suggestions: ${placement.type}`,
+          detail: placement.scheduledDate
+            ? `Client submitted suggested edits. Placement is scheduled ${formatDateLong(
+                placement.scheduledDate
+              )}.`
+            : "Client submitted suggested edits and is waiting on an updated draft.",
+          href: `/dashboard/${campaign.id}/${placement.id}`,
+          actionLabel: "Review Feedback",
+          urgent: true,
+        });
+        continue;
+      }
+
       if (
         placement.status === "Copywriting in Progress" &&
         placement.copyVersion > 0 &&
@@ -78,8 +98,9 @@ export function buildDashboardTasks(
 
       const priority: Record<DashboardTask["type"], number> = {
         "onboarding-reminder": 1,
-        "copy-review": 2,
-        "billing-invoice": 3,
+        "client-suggestion-review": 2,
+        "copy-review": 3,
+        "billing-invoice": 4,
       };
       return priority[a.type] - priority[b.type];
     });
