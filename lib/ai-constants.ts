@@ -17,7 +17,8 @@ Campaign context (from client onboarding form):
 
 Use the client's onboarding responses above to inform the copy. The messaging should guide the value proposition and tone, and the desired action should shape the call-to-action.
 
-Each placement also has a client brief with placement-specific details — use it when provided.
+Each placement also has a client brief with placement-specific details.
+When placement-specific guidance conflicts with campaign-level messaging, prioritize the placement brief's angle/theme for that specific placement while keeping facts accurate.
 
 Format guidelines by placement type:
 - Primary: The main sponsored section. 150-200 words. Opens with a compelling hook, explains the value proposition, and ends with a clear call-to-action. Use markdown formatting (bold for key phrases, line breaks between paragraphs).

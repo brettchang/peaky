@@ -12,7 +12,10 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
     "migrate:notion:dry": "tsx scripts/migrate-notion.ts --dry-run",
-    "migrate:notion": "tsx scripts/migrate-notion.ts"
+    "migrate:notion": "tsx scripts/migrate-notion.ts",
+    "migrate:notion:copy:dry": "tsx scripts/migrate-notion-copy.ts --dry-run",
+    "migrate:notion:copy": "tsx scripts/migrate-notion-copy.ts",
+    "migrate:notion:copy:force": "tsx scripts/migrate-notion-copy.ts --force"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
