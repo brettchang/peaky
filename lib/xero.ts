@@ -101,6 +101,9 @@ export async function isXeroConnected(): Promise<{
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapXeroInvoice(raw: Record<string, any>): XeroInvoice {
+  const mappedDate = normalizeXeroDate(raw.date ?? raw.Date);
+  const mappedDueDate = normalizeXeroDate(raw.dueDate ?? raw.DueDate);
+
   return {
     invoiceID: raw.invoiceID ?? raw.InvoiceID ?? "",
     invoiceNumber: raw.invoiceNumber ?? raw.InvoiceNumber ?? "",
@@ -108,14 +111,45 @@ function mapXeroInvoice(raw: Record<string, any>): XeroInvoice {
       contactID: raw.contact?.contactID ?? raw.Contact?.ContactID ?? "",
       name: raw.contact?.name ?? raw.Contact?.Name ?? "",
     },
-    date: raw.date ?? raw.Date ?? "",
-    dueDate: raw.dueDate ?? raw.DueDate ?? "",
+    date: mappedDate,
+    dueDate: mappedDueDate,
     status: (raw.status ?? raw.Status ?? "DRAFT") as XeroInvoiceStatus,
     total: raw.total ?? raw.Total ?? 0,
     amountDue: raw.amountDue ?? raw.AmountDue ?? 0,
     amountPaid: raw.amountPaid ?? raw.AmountPaid ?? 0,
     currencyCode: raw.currencyCode ?? raw.CurrencyCode ?? "USD",
   };
+}
+
+function normalizeXeroDate(rawValue: unknown): string {
+  if (rawValue == null) return "";
+
+  // Handles Xero legacy format like "/Date(1710460800000+0000)/"
+  if (typeof rawValue === "string") {
+    const legacyMatch = rawValue.match(/\/Date\((\d+)(?:[+-]\d+)?\)\//);
+    if (legacyMatch?.[1]) {
+      const ms = Number(legacyMatch[1]);
+      if (!Number.isNaN(ms)) {
+        return new Date(ms).toISOString().slice(0, 10);
+      }
+    }
+
+    // Handles ISO datetime and plain YYYY-MM-DD
+    const parsed = new Date(rawValue);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return "";
+  }
+
+  if (typeof rawValue === "number") {
+    const parsed = new Date(rawValue);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  return "";
 }
 
 export async function fetchXeroInvoices(

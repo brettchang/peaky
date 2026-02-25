@@ -52,6 +52,7 @@ export default async function InvoicingPage() {
   function formatDate(dateStr: string) {
     if (!dateStr) return "—";
     const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return "—";
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -62,7 +63,9 @@ export default async function InvoicingPage() {
   function isOverdue(link: (typeof links)[0]) {
     if (!link.invoice) return false;
     if (link.invoice.status !== "AUTHORISED") return false;
-    return new Date(link.invoice.dueDate) < now && link.invoice.amountDue > 0;
+    const due = new Date(link.invoice.dueDate);
+    if (Number.isNaN(due.getTime())) return false;
+    return due < now && link.invoice.amountDue > 0;
   }
 
   return (
