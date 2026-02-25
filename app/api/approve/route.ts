@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (placement.status !== "Sent for Approval") {
+  if (
+    placement.status !== "Sent for Approval" &&
+    placement.status !== "Peak Team Review Complete"
+  ) {
     return NextResponse.json(
       { error: "Placement is not available for approval" },
       { status: 409 }

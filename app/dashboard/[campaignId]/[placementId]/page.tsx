@@ -23,6 +23,9 @@ export default async function PlacementDetailPage({
 
   const placement = campaign.placements.find((p) => p.id === placementId);
   if (!placement) notFound();
+  const placementRound = campaign.onboardingRounds.find(
+    (round) => round.id === placement.onboardingRoundId
+  );
 
   const [invoiceLinks, xeroStatus] = await Promise.all([
     getPlacementInvoiceLinks(placementId),
@@ -52,6 +55,16 @@ export default async function PlacementDetailPage({
       <AdminPlacementDetail
         campaignId={campaignId}
         placement={placement}
+        onboardingAnswers={{
+          roundLabel: placementRound?.label ?? placementRound?.id,
+          roundComplete: placementRound?.complete,
+          campaignMessaging: campaign.onboardingMessaging,
+          campaignDesiredAction: campaign.onboardingDesiredAction,
+          placementBrief: placement.onboardingBrief,
+          placementLink: placement.linkToPlacement,
+          logoUrl: placement.logoUrl,
+          imageUrl: placement.imageUrl,
+        }}
         invoiceLinks={invoiceLinks}
         adLineItems={campaign.adLineItems ?? []}
         xeroConnected={xeroStatus.connected}

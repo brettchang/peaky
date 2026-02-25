@@ -334,12 +334,16 @@ export function OnboardingStatus({
             <div className="flex items-center gap-2">
               {!billingOnboarding.complete && (
                 <>
-                  <button
-                    onClick={() => handleCopy("billing", billingOnboarding.filloutLink)}
-                    className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
-                  >
-                    {copiedId === "billing" ? "Copied!" : "Copy Fillout Link"}
-                  </button>
+                  {portalUrl && (
+                    <button
+                      onClick={() =>
+                        handleCopy("billing", `${portalUrl}/${campaignId}`)
+                      }
+                      className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                    >
+                      {copiedId === "billing" ? "Copied!" : "Copy Portal Link"}
+                    </button>
+                  )}
                   <input
                     type="file"
                     accept=".doc,.docx,.pdf,.txt"

@@ -42,6 +42,9 @@ export {
   bulkSchedulePlacements,
   saveOnboardingForm,
   submitOnboardingForm,
+  saveBillingOnboardingForm,
+  submitBillingOnboardingForm,
+  updateBillingOnboardingByAdmin,
   upsertSetting,
   deleteCampaign,
 } from "./mutations";

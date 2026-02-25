@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
   const {
     clientName,
     name,
+    salesPerson,
     campaignManager,
     contactName,
     contactEmail,
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
   const campaign = await createCampaign({
     clientName,
     name,
+    salesPerson,
     campaignManager,
     contactName,
     contactEmail,

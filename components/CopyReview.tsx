@@ -29,6 +29,13 @@ export function CopyReview({
 
   const displayStatus = getClientDisplayStatus(placement.status);
   const hasEdits = editedCopy !== placement.currentCopy;
+  const isClientReviewStage =
+    displayStatus === "Peak Team Review Complete" ||
+    displayStatus === "Sent for Approval";
+  const canClientViewCopy =
+    displayStatus === "Peak Team Review Complete" ||
+    displayStatus === "Sent for Approval" ||
+    displayStatus === "Approved";
 
   if (confirmationType) {
     return <ConfirmationScreen type={confirmationType} />;
@@ -92,26 +99,34 @@ export function CopyReview({
     <div className="space-y-6">
       {/* Copy display */}
       <div className="rounded-lg border border-gray-200 bg-white p-6">
-        {displayStatus === "Ready for Review" ? (
+        {canClientViewCopy ? (
           <>
-            {hasEdits && (
+            {isClientReviewStage && hasEdits && (
               <div className="mb-4">
                 <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
                   Edited
                 </span>
               </div>
             )}
-            <CopyEditor value={editedCopy} onChange={setEditedCopy} />
+            {isClientReviewStage ? (
+              <CopyEditor value={editedCopy} onChange={setEditedCopy} />
+            ) : (
+              <div className="prose max-w-none">
+                {formatCopy(placement.currentCopy)}
+              </div>
+            )}
           </>
         ) : (
-          <div className="prose max-w-none">
-            {formatCopy(placement.currentCopy)}
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <p className="text-sm text-blue-700">
+              Copy is still in progress and will appear here after Peak team approval.
+            </p>
           </div>
         )}
       </div>
 
-      {/* Ready for Review — client can approve or request revisions */}
-      {displayStatus === "Ready for Review" && (
+      {/* Review stage — client can approve or request revisions */}
+      {isClientReviewStage && (
         <div className="space-y-4">
           {hasEdits && (
             <p className="text-sm text-amber-700">
@@ -174,8 +189,8 @@ export function CopyReview({
         </div>
       )}
 
-      {/* In Progress — copy is being worked on (includes "Copywriting in Progress" after revision) */}
-      {displayStatus === "In Progress" && (
+      {/* Copywriting in Progress */}
+      {displayStatus === "Copywriting in Progress" && (
         <div className="space-y-4">
           {placement.revisionNotes && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -193,6 +208,16 @@ export function CopyReview({
               the copy for review soon.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* New Campaign */}
+      {displayStatus === "New Campaign" && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+          <p className="text-sm text-gray-700">
+            This placement is waiting on your copy onboarding form. Once submitted,
+            status will move to Copywriting in Progress.
+          </p>
         </div>
       )}
 

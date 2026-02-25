@@ -22,5 +22,6 @@ export async function POST(request: NextRequest) {
   }
 
   revalidatePath("/dashboard", "layout");
+  revalidatePath(`/dashboard/${campaignId}`);
   return NextResponse.json({ success: true });
 }

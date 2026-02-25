@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AdLineItem, PlacementType, Placement } from "@/lib/types";
+import { AdLineItem, PlacementType, Placement, Publication } from "@/lib/types";
 
-const PLACEMENT_TYPES: PlacementType[] = [
-  "Primary",
-  "Secondary",
-  "Peak Picks",
-  "Beehiv",
-  "Smart Links",
-  "BLS",
-  "Podcast Ad",
+const AD_UNIT_OPTIONS: Array<{ value: PlacementType; label: string }> = [
+  { value: "Primary", label: "Primary (150 words + image + logo)" },
+  { value: "Secondary", label: "Secondary (75 words)" },
+  { value: "Peak Picks", label: "Peak Picks (10-15 words)" },
+];
+
+const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
+  { value: "The Peak", label: "The Peak Daily Newsletter" },
+  { value: "Peak Money", label: "Peak Money" },
 ];
 
 interface AdLineItemsProps {
@@ -27,19 +28,28 @@ export function AdLineItems({
 }: AdLineItemsProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState(() =>
+    initialItems.map((item) => ({
+      ...item,
+      publication: item.publication ?? "The Peak",
+    }))
+  );
   const [saving, setSaving] = useState(false);
 
-  // Count scheduled placements (those with a date) by type
+  // Count scheduled placements (those with a date) by type + publication
   const scheduledByType: Record<string, number> = {};
   for (const p of placements) {
     if (p.scheduledDate) {
-      scheduledByType[p.type] = (scheduledByType[p.type] || 0) + 1;
+      const key = `${p.type}|${p.publication}`;
+      scheduledByType[key] = (scheduledByType[key] || 0) + 1;
     }
   }
 
   function addRow() {
-    setItems([...items, { quantity: 1, type: "Primary", pricePerUnit: 0 }]);
+    setItems([
+      ...items,
+      { quantity: 1, type: "Primary", publication: "The Peak", pricePerUnit: 0 },
+    ]);
   }
 
   function removeRow(index: number) {
@@ -50,14 +60,21 @@ export function AdLineItems({
     const updated = [...items];
     if (field === "type") {
       updated[index] = { ...updated[index], type: value as PlacementType };
-    } else {
+    } else if (field === "publication") {
+      updated[index] = { ...updated[index], publication: value as Publication };
+    } else if (field === "quantity" || field === "pricePerUnit") {
       updated[index] = { ...updated[index], [field]: Number(value) || 0 };
     }
     setItems(updated);
   }
 
   function handleCancel() {
-    setItems(initialItems);
+    setItems(
+      initialItems.map((item) => ({
+        ...item,
+        publication: item.publication ?? "The Peak",
+      }))
+    );
     setEditing(false);
   }
 
@@ -100,6 +117,7 @@ export function AdLineItems({
           <tr className="text-left text-xs text-gray-500">
             <th className="pb-2 font-medium">Qty</th>
             <th className="pb-2 font-medium">Ad Unit</th>
+            <th className="pb-2 font-medium">Publication</th>
             <th className="pb-2 font-medium text-center">Scheduled</th>
             <th className="pb-2 font-medium text-right">Price Each</th>
             <th className="pb-2 font-medium text-right">Subtotal</th>
@@ -108,7 +126,8 @@ export function AdLineItems({
         </thead>
         <tbody className="text-gray-900">
           {items.map((li, i) => {
-            const scheduled = scheduledByType[li.type] || 0;
+            const key = `${li.type}|${li.publication ?? "The Peak"}`;
+            const scheduled = scheduledByType[key] || 0;
             const fulfilled = scheduled >= li.quantity;
             return (
               <tr key={i} className="border-t border-gray-100">
@@ -129,9 +148,22 @@ export function AdLineItems({
                         onChange={(e) => updateRow(i, "type", e.target.value)}
                         className="rounded border border-gray-300 px-2 py-1 text-sm"
                       >
-                        {PLACEMENT_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
+                        {AD_UNIT_OPTIONS.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <select
+                        value={li.publication ?? "The Peak"}
+                        onChange={(e) => updateRow(i, "publication", e.target.value)}
+                        className="rounded border border-gray-300 px-2 py-1 text-sm"
+                      >
+                        {PUBLICATIONS.map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label}
                           </option>
                         ))}
                       </select>
@@ -182,6 +214,7 @@ export function AdLineItems({
                   <>
                     <td className="py-1.5">{li.quantity}</td>
                     <td className="py-1.5">{li.type}</td>
+                    <td className="py-1.5">{li.publication ?? "The Peak"}</td>
                     <td className="py-1.5 text-center">
                       <span
                         className={`text-xs font-medium ${
@@ -206,6 +239,7 @@ export function AdLineItems({
         <tfoot>
           <tr className="border-t border-gray-200 font-medium">
             <td className="pt-2">{totalSold}</td>
+            <td className="pt-2" />
             <td className="pt-2" />
             <td className="pt-2 text-center text-xs text-gray-500">
               {placements.filter(p => p.scheduledDate).length} scheduled

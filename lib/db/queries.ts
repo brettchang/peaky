@@ -26,6 +26,44 @@ import { DAILY_CAPACITY_LIMITS } from "../types";
 import type { CampaignInvoiceLink, PlacementInvoiceLink } from "../xero-types";
 import { getXeroConnection, fetchXeroInvoice } from "../xero";
 
+const BILLING_META_START = "<!-- billing-meta:start -->";
+const BILLING_META_END = "<!-- billing-meta:end -->";
+
+interface CampaignPortalMeta {
+  representingClient?: boolean;
+  wantsPeakCopy?: boolean;
+  salesPerson?: string;
+}
+
+function extractCampaignPortalMeta(notes?: string | null): {
+  cleanNotes: string | undefined;
+  meta: CampaignPortalMeta;
+} {
+  if (!notes) return { cleanNotes: undefined, meta: {} };
+
+  const start = notes.indexOf(BILLING_META_START);
+  const end = notes.indexOf(BILLING_META_END);
+  if (start === -1 || end === -1 || end < start) {
+    return { cleanNotes: notes, meta: {} };
+  }
+
+  const before = notes.slice(0, start).trim();
+  const after = notes.slice(end + BILLING_META_END.length).trim();
+  const rawMeta = notes
+    .slice(start + BILLING_META_START.length, end)
+    .trim();
+
+  let meta: CampaignPortalMeta = {};
+  try {
+    meta = JSON.parse(rawMeta) as CampaignPortalMeta;
+  } catch {
+    meta = {};
+  }
+
+  const cleanNotes = [before, after].filter(Boolean).join("\n\n").trim() || undefined;
+  return { cleanNotes, meta };
+}
+
 // ─── Mapper helpers ──────────────────────────────────────────
 // Convert DB rows (Date objects, nulls) to app types (ISO strings, undefineds)
 
@@ -56,6 +94,7 @@ function mapBillingOnboarding(
     filloutLink: row.filloutLink,
     complete: row.complete,
     completedAt: row.completedAt?.toISOString() ?? undefined,
+    companyName: row.poNumber ?? undefined,
     billingContactName: row.billingContactName ?? undefined,
     billingContactEmail: row.billingContactEmail ?? undefined,
     billingAddress: row.billingAddress ?? undefined,
@@ -98,6 +137,28 @@ function mapPlacement(
   };
 }
 
+function canClientViewCopy(status: PlacementStatus): boolean {
+  return (
+    status === "Peak Team Review Complete" ||
+    status === "Sent for Approval" ||
+    status === "Approved"
+  );
+}
+
+function maskPlacementForClient(placement: Placement): Placement {
+  if (canClientViewCopy(placement.status)) {
+    return placement;
+  }
+
+  return {
+    ...placement,
+    currentCopy: "",
+    copyVersion: 0,
+    revisionHistory: [],
+    revisionNotes: undefined,
+  };
+}
+
 type CampaignRelational = typeof schema.campaigns.$inferSelect & {
   placements: (typeof schema.placements.$inferSelect & {
     revisionHistory: (typeof schema.copyVersions.$inferSelect)[];
@@ -108,11 +169,13 @@ type CampaignRelational = typeof schema.campaigns.$inferSelect & {
 };
 
 function mapCampaign(row: CampaignRelational): Campaign {
+  const extracted = extractCampaignPortalMeta(row.notes);
   return {
     id: row.id,
     name: row.name,
     clientId: row.clientId,
     status: row.status as CampaignStatus,
+    salesPerson: extracted.meta.salesPerson ?? undefined,
     campaignManager: row.campaignManager ?? undefined,
     contactName: row.contactName ?? undefined,
     contactEmail: row.contactEmail ?? undefined,
@@ -225,7 +288,13 @@ export async function getCampaignPageData(
 
   if (!client.campaignIds.includes(campaignId)) return null;
 
-  return { client, campaign };
+  return {
+    client,
+    campaign: {
+      ...campaign,
+      placements: campaign.placements.map(maskPlacementForClient),
+    },
+  };
 }
 
 export async function getCampaignsForClient(
@@ -247,7 +316,13 @@ export async function getCampaignsForClient(
 
   return {
     client,
-    campaigns: campaignRows.map(mapCampaign),
+    campaigns: campaignRows.map((row) => {
+      const campaign = mapCampaign(row);
+      return {
+        ...campaign,
+        placements: campaign.placements.map(maskPlacementForClient),
+      };
+    }),
   };
 }
 
@@ -293,11 +368,13 @@ export async function getPlacementsForClient(
       placementsList.push({
         campaignId: c.id,
         campaignName: c.name,
-        placement: mapPlacement(
-          p,
-          p.revisionHistory
-            .map(mapCopyVersion)
-            .sort((a, b) => a.version - b.version)
+        placement: maskPlacementForClient(
+          mapPlacement(
+            p,
+            p.revisionHistory
+              .map(mapCopyVersion)
+              .sort((a, b) => a.version - b.version)
+          )
         ),
       });
     }
@@ -322,7 +399,14 @@ export async function getPlacementPageData(
   const placement = campaign.placements.find((p) => p.id === placementId);
   if (!placement) return null;
 
-  return { client, campaign, placement };
+  return {
+    client,
+    campaign: {
+      ...campaign,
+      placements: campaign.placements.map(maskPlacementForClient),
+    },
+    placement: maskPlacementForClient(placement),
+  };
 }
 
 export function getClientByCampaignId(

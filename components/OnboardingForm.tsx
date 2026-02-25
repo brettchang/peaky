@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { DateRangeCapacity, Placement } from "@/lib/types";
 import { DAILY_CAPACITY_LIMITS } from "@/lib/types";
@@ -215,24 +216,6 @@ export function OnboardingForm({
   }
 
   async function handleSubmit() {
-    if (placementsNeedingDates.length > 0) {
-      if (loadingDates) {
-        setError("Date availability is still loading. Please try again in a moment.");
-        return;
-      }
-
-      if (!capacity) {
-        setError("Unable to load date availability. Please refresh and try again.");
-        return;
-      }
-
-      const missingDate = placementsNeedingDates.find((p) => !selectedDates[p.id]);
-      if (missingDate) {
-        setError("Please choose a date for each placement before submitting.");
-        return;
-      }
-    }
-
     if (!messaging.trim() || !desiredAction.trim()) {
       setError("Please fill in both campaign questions before submitting.");
       return;
@@ -259,6 +242,12 @@ export function OnboardingForm({
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
+      <Link
+        href={`/portal/${clientPortalId}`}
+        className="mb-3 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
+      >
+        &larr; Back to portal
+      </Link>
       <h2 className="text-lg font-semibold text-gray-900">
         {roundLabel || "Help us create your ad copy"}
       </h2>
@@ -297,7 +286,7 @@ export function OnboardingForm({
       <div className="mt-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">
-            What&apos;s the overall messaging for this campaign?
+            What&apos;s the overall message of the campaign (be as specific as you can)?
           </label>
           <textarea
             value={messaging}
@@ -373,7 +362,7 @@ export function OnboardingForm({
                   {!p.scheduledDate && (
                     <div className="mb-3">
                       <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Placement Date
+                        Placement date(s) (If you&apos;re not ready to pick you can always choose later)
                       </label>
                       <select
                         value={selectedDates[p.id] || ""}
@@ -427,7 +416,7 @@ export function OnboardingForm({
                   {/* Brief */}
                   <div className="mb-3">
                     <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Brief
+                      Tell us what you want the copy in this placement to be (if different from the main brief)
                     </label>
                     <textarea
                       value={briefs[p.id] || ""}
@@ -445,7 +434,11 @@ export function OnboardingForm({
 
                   {/* Primary-only: logo + story image uploads */}
                   {isPrimary && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="mb-2 text-xs text-gray-500">
+                        Our Primary Placements include logo placement at the top of the newsletter and a 600x340 feature image in the placement.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
                       {/* Logo upload */}
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -568,6 +561,7 @@ export function OnboardingForm({
                             </button>
                           </>
                         )}
+                      </div>
                       </div>
                     </div>
                   )}

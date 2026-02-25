@@ -83,6 +83,51 @@ export function AdminPlacementList({
     }
   }
 
+  async function handlePeakTeamApproved(placement: Placement) {
+    const placementId = placement.id;
+    const draftCopy = editedCopy[placementId];
+    const hasDraftChanges =
+      draftCopy !== undefined && draftCopy !== placement.currentCopy;
+
+    setSavingCopyId(placementId);
+    try {
+      if (hasDraftChanges) {
+        const saveRes = await fetch("/api/update-copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaignId,
+            placementId,
+            copy: draftCopy,
+          }),
+        });
+        if (!saveRes.ok) return;
+        setEditedCopy((prev) => {
+          const next = { ...prev };
+          delete next[placementId];
+          return next;
+        });
+      }
+
+      setUpdatingId(placementId);
+      const statusRes = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId,
+          status: "Peak Team Review Complete",
+        }),
+      });
+      if (statusRes.ok) {
+        router.refresh();
+      }
+    } finally {
+      setSavingCopyId(null);
+      setUpdatingId(null);
+    }
+  }
+
   async function handleStatusChange(placementId: string, status: string) {
     setUpdatingId(placementId);
     try {
@@ -182,7 +227,11 @@ export function AdminPlacementList({
   }
 
   function getPlacementCost(placement: Placement): number | null {
-    const item = adLineItems.find((li) => li.type === placement.type);
+    const item = adLineItems.find(
+      (li) =>
+        li.type === placement.type &&
+        (li.publication ? li.publication === placement.publication : true)
+    );
     return item ? item.pricePerUnit : null;
   }
 
@@ -540,6 +589,25 @@ export function AdminPlacementList({
                         </button>
                       </div>
                     )}
+
+                  {(placement.status === "Copywriting in Progress" ||
+                    placement.status === "New Campaign") && (
+                    <div className="mt-3">
+                      <button
+                        onClick={() => handlePeakTeamApproved(placement)}
+                        disabled={
+                          savingCopyId === placement.id ||
+                          updatingId === placement.id
+                        }
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {savingCopyId === placement.id ||
+                        updatingId === placement.id
+                          ? "Updating..."
+                          : "The Peak Team Has Approved"}
+                      </button>
+                    </div>
+                  )}
 
                   {placement.revisionNotes && (
                     <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3">

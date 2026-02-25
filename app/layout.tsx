@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { BrandMark } from "@/components/BrandMark";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -21,7 +22,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} font-[family-name:var(--font-geist-sans)] antialiased`}>
-        {children}
+        <div className="min-h-screen">
+          <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
+            <div className="mx-auto flex h-14 max-w-7xl items-center px-4">
+              <BrandMark />
+            </div>
+          </header>
+          {children}
+        </div>
       </body>
     </html>
   );

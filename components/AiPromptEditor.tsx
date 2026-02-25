@@ -5,8 +5,10 @@ import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT, AI_COPY_TEMPLATE_VARIABLES 
 
 export function AiPromptEditor({
   currentPrompt,
+  className = "",
 }: {
   currentPrompt: string | null;
+  className?: string;
 }) {
   const [prompt, setPrompt] = useState(currentPrompt || DEFAULT_AI_COPY_PROMPT);
   const [saving, setSaving] = useState(false);
@@ -39,7 +41,7 @@ export function AiPromptEditor({
   }
 
   return (
-    <div className="mb-8">
+    <div className={`rounded-lg border border-gray-200 bg-white px-5 py-4 ${className}`}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between text-left"

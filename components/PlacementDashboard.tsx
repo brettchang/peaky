@@ -6,9 +6,22 @@ import { ClientPlacementRow, PlacementStatus, getClientDisplayStatus } from "@/l
 import { StatusBadge } from "@/components/StatusBadge";
 import { PerformanceStats } from "@/components/PerformanceStats";
 
-type FilterTab = "All" | "Ready for Review" | "In Progress" | "Approved";
+type FilterTab =
+  | "All"
+  | "New Campaign"
+  | "Copywriting in Progress"
+  | "Peak Team Review Complete"
+  | "Sent for Approval"
+  | "Approved";
 
-const FILTER_TABS: FilterTab[] = ["All", "Ready for Review", "In Progress", "Approved"];
+const FILTER_TABS: FilterTab[] = [
+  "All",
+  "New Campaign",
+  "Copywriting in Progress",
+  "Peak Team Review Complete",
+  "Sent for Approval",
+  "Approved",
+];
 
 function matchesFilter(status: PlacementStatus, filter: FilterTab): boolean {
   if (filter === "All") return true;

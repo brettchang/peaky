@@ -19,7 +19,6 @@ function getBarColor(status: PlacementStatus): string {
 interface CalendarPlacement {
   placementId: string;
   campaignId: string;
-  clientPortalId: string;
   clientName: string;
   type: string;
   status: PlacementStatus;
@@ -55,13 +54,12 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
 
   // Flatten all placements with their campaign/client context
   const placements: CalendarPlacement[] = [];
-  for (const { campaign, clientName, clientPortalId } of data) {
+  for (const { campaign, clientName } of data) {
     for (const p of campaign.placements) {
       if (p.scheduledDate) {
         placements.push({
           placementId: p.id,
           campaignId: campaign.id,
-          clientPortalId,
           clientName,
           type: p.type,
           status: p.status,
@@ -180,7 +178,7 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
                   {dayPlacements.map((p, j) => (
                     <Link
                       key={`${p.campaignId}-${p.type}-${j}`}
-                      href={`/portal/${p.clientPortalId}/${p.campaignId}/${p.placementId}`}
+                      href={`/dashboard/${p.campaignId}/${p.placementId}`}
                       className="group flex overflow-hidden rounded text-left hover:shadow-sm"
                     >
                       <div

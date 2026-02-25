@@ -2,21 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { PlacementType } from "@/lib/types";
+import { PlacementType, Publication } from "@/lib/types";
 
-const PLACEMENT_TYPES: PlacementType[] = [
-  "Primary",
-  "Secondary",
-  "Peak Picks",
-  "Beehiv",
-  "Smart Links",
-  "BLS",
-  "Podcast Ad",
+const AD_UNIT_OPTIONS: Array<{ value: PlacementType; label: string }> = [
+  { value: "Primary", label: "Primary (150 words + image + logo)" },
+  { value: "Secondary", label: "Secondary (75 words)" },
+  { value: "Peak Picks", label: "Peak Picks (10-15 words)" },
+];
+
+const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
+  { value: "The Peak", label: "The Peak Daily Newsletter" },
+  { value: "Peak Money", label: "Peak Money" },
 ];
 
 interface LineItem {
   quantity: string;
   type: PlacementType | "";
+  publication: Publication | "";
   pricePerUnit: string;
 }
 
@@ -26,11 +28,14 @@ export function CreateCampaignForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    { quantity: "", type: "", pricePerUnit: "" },
+    { quantity: "", type: "", publication: "", pricePerUnit: "" },
   ]);
 
   function addLineItem() {
-    setLineItems([...lineItems, { quantity: "", type: "", pricePerUnit: "" }]);
+    setLineItems([
+      ...lineItems,
+      { quantity: "", type: "", publication: "", pricePerUnit: "" },
+    ]);
   }
 
   function removeLineItem(index: number) {
@@ -44,7 +49,7 @@ export function CreateCampaignForm() {
   }
 
   function resetForm() {
-    setLineItems([{ quantity: "", type: "", pricePerUnit: "" }]);
+    setLineItems([{ quantity: "", type: "", publication: "", pricePerUnit: "" }]);
     setError(null);
   }
 
@@ -58,10 +63,11 @@ export function CreateCampaignForm() {
 
     // Build adLineItems from state, filtering out empty rows
     const adLineItems = lineItems
-      .filter((li) => li.quantity && li.type)
+      .filter((li) => li.quantity && li.type && li.publication)
       .map((li) => ({
         quantity: Number(li.quantity),
         type: li.type,
+        publication: li.publication,
         pricePerUnit: Number(li.pricePerUnit) || 0,
       }));
 
@@ -71,6 +77,7 @@ export function CreateCampaignForm() {
       body: JSON.stringify({
         clientName: formData.get("clientName"),
         name: formData.get("name"),
+        salesPerson: formData.get("salesPerson") || undefined,
         campaignManager: formData.get("campaignManager") || undefined,
         contactName: formData.get("contactName") || undefined,
         contactEmail: formData.get("contactEmail") || undefined,
@@ -154,19 +161,31 @@ export function CreateCampaignForm() {
                 />
               </div>
 
-              {/* Campaign manager */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Sales Person / Campaign Manager
-                </label>
-                <input
-                  type="text"
-                  name="campaignManager"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                />
+              {/* Sales / campaign owners */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Sales Person
+                  </label>
+                  <input
+                    type="text"
+                    name="salesPerson"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Campaign Manager
+                  </label>
+                  <input
+                    type="text"
+                    name="campaignManager"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
-              {/* Two-column row */}
+              {/* Contact row */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -204,12 +223,16 @@ export function CreateCampaignForm() {
                     + Add line
                   </button>
                 </div>
+                <p className="mb-2 text-xs text-gray-500">
+                  Select the ad unit and the publication for each line item.
+                </p>
 
                 <div className="space-y-2">
                   {/* Column headers */}
-                  <div className="grid grid-cols-[60px_1fr_100px_28px] items-center gap-2">
+                  <div className="hidden items-center gap-2 md:grid md:grid-cols-[60px_minmax(0,1fr)_minmax(0,1fr)_100px_28px]">
                     <span className="text-xs text-gray-500">Qty</span>
                     <span className="text-xs text-gray-500">Ad Unit</span>
+                    <span className="text-xs text-gray-500">Publication</span>
                     <span className="text-xs text-gray-500">Price Each</span>
                     <span />
                   </div>
@@ -217,33 +240,57 @@ export function CreateCampaignForm() {
                   {lineItems.map((li, i) => (
                     <div
                       key={i}
-                      className="grid grid-cols-[60px_1fr_100px_28px] items-center gap-2"
+                      className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-[60px_minmax(0,1fr)_minmax(0,1fr)_100px_28px] md:items-center md:border-0 md:p-0"
                     >
-                      <input
-                        type="number"
-                        min="1"
-                        value={li.quantity}
-                        onChange={(e) =>
-                          updateLineItem(i, "quantity", e.target.value)
-                        }
-                        placeholder="#"
-                        className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                      />
-                      <select
-                        value={li.type}
-                        onChange={(e) =>
-                          updateLineItem(i, "type", e.target.value)
-                        }
-                        className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                      >
-                        <option value="">Select type...</option>
-                        {PLACEMENT_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
+                      <div>
+                        <label className="mb-1 block text-xs text-gray-500 md:hidden">Qty</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={li.quantity}
+                          onChange={(e) =>
+                            updateLineItem(i, "quantity", e.target.value)
+                          }
+                          placeholder="#"
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs text-gray-500 md:hidden">Ad Unit</label>
+                        <select
+                          value={li.type}
+                          onChange={(e) =>
+                            updateLineItem(i, "type", e.target.value)
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                        >
+                          <option value="">Select type...</option>
+                          {AD_UNIT_OPTIONS.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs text-gray-500 md:hidden">Publication</label>
+                        <select
+                          value={li.publication}
+                          onChange={(e) =>
+                            updateLineItem(i, "publication", e.target.value)
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                        >
+                          <option value="">Select publication...</option>
+                          {PUBLICATIONS.map((p) => (
+                            <option key={p.value} value={p.value}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="relative">
+                        <label className="mb-1 block text-xs text-gray-500 md:hidden">Price Each</label>
                         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-gray-400">
                           $
                         </span>
@@ -263,7 +310,7 @@ export function CreateCampaignForm() {
                         <button
                           type="button"
                           onClick={() => removeLineItem(i)}
-                          className="flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                          className="mt-1 flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 md:mt-0"
                         >
                           &times;
                         </button>

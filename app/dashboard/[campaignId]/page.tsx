@@ -12,6 +12,7 @@ import { CampaignInvoiceSection } from "@/components/CampaignInvoiceSection";
 import { CampaignMetadataEditor } from "@/components/CampaignMetadataEditor";
 import { DateRangeScheduler } from "@/components/DateRangeScheduler";
 import { GenerateCopyButton } from "@/components/GenerateCopyButton";
+import { SendOnboardingEmailButton } from "@/components/SendOnboardingEmailButton";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,21 @@ export default async function CampaignDetailPage({
 
       {/* Campaign header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">{campaign.name}</h1>
-          <StatusBadge status={campaign.status} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">{campaign.name}</h1>
+            <StatusBadge status={campaign.status} />
+          </div>
+          {client && (
+            <SendOnboardingEmailButton
+              campaignId={campaign.id}
+              campaignName={campaign.name}
+              clientName={client.name}
+              recipientEmail={campaign.contactEmail}
+              recipientName={campaign.contactName}
+              portalCampaignUrl={`${portalUrl}/${campaign.id}`}
+            />
+          )}
         </div>
         {client && (
           <p className="mt-1 text-sm text-gray-500">{client.name}</p>
@@ -74,11 +87,13 @@ export default async function CampaignDetailPage({
         campaignId={campaign.id}
         campaign={{
           name: campaign.name,
+          clientName: client?.name,
           status: campaign.status,
+          salesPerson: campaign.salesPerson,
           campaignManager: campaign.campaignManager,
           contactName: campaign.contactName,
           contactEmail: campaign.contactEmail,
-          notes: campaign.notes,
+          notes: extractCleanNotes(campaign.notes),
           placementCount: campaign.placements.length,
           invoiceCadenceLabel:
             campaign.billingOnboarding?.complete && campaign.billingOnboarding.invoiceCadence
@@ -164,7 +179,7 @@ export default async function CampaignDetailPage({
 
       {/* Billing Details */}
       {campaign.billingOnboarding?.complete && (
-        <BillingDetails billing={campaign.billingOnboarding} />
+        <BillingDetails campaignId={campaign.id} billing={campaign.billingOnboarding} />
       )}
 
       {/* Xero Invoices */}
@@ -200,4 +215,17 @@ export default async function CampaignDetailPage({
       />
     </div>
   );
+}
+
+function extractCleanNotes(notes?: string): string | undefined {
+  if (!notes) return undefined;
+  const startTag = "<!-- billing-meta:start -->";
+  const endTag = "<!-- billing-meta:end -->";
+  const start = notes.indexOf(startTag);
+  const end = notes.indexOf(endTag);
+  if (start === -1 || end === -1 || end < start) return notes;
+
+  const before = notes.slice(0, start).trim();
+  const after = notes.slice(end + endTag.length).trim();
+  return [before, after].filter(Boolean).join("\n\n") || undefined;
 }

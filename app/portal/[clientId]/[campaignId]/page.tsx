@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCampaignPageData } from "@/lib/db";
 import { getClientDisplayStatus, isOnboardingEditable } from "@/lib/types";
@@ -6,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { CopyReview } from "@/components/CopyReview";
 import { RevisionHistory } from "@/components/RevisionHistory";
 import { OnboardingForm } from "@/components/OnboardingForm";
+import { BillingOnboardingForm } from "@/components/BillingOnboardingForm";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,9 @@ export default async function CampaignPage({ params }: PageProps) {
   const hasPlacementsWithCopy = campaign.placements.some(
     (p) => p.currentCopy && p.copyVersion > 0
   );
+  const billing = campaign.billingOnboarding;
+  const billingMeta = extractBillingMeta(campaign.notes);
+  const wantsPeakCopy = billingMeta.wantsPeakCopy ?? true;
 
   // Build per-round data: each round with its assigned placements
   const rounds = campaign.onboardingRounds.map((round) => ({
@@ -72,6 +77,13 @@ export default async function CampaignPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
+      <Link
+        href={`/portal/${client.portalId}`}
+        className="mb-6 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
+      >
+        &larr; Back to portal
+      </Link>
+
       <div className="mb-8">
         <p className="text-sm text-gray-500">{client.name}</p>
         <h1 className="mt-1 text-2xl font-bold text-gray-900">{campaign.name}</h1>
@@ -82,42 +94,64 @@ export default async function CampaignPage({ params }: PageProps) {
         </p>
       </div>
 
-      {/* Onboarding Forms — one per incomplete round */}
-      {incompleteRounds.map(({ round, placements: roundPlacements }) => (
-        <div key={round.id} className="mb-10">
-          <OnboardingForm
-            campaignId={campaign.id}
-            clientPortalId={client.portalId}
-            roundId={round.id}
-            roundLabel={round.label}
-            placements={roundPlacements}
-            initialMessaging={campaign.onboardingMessaging}
-            initialDesiredAction={campaign.onboardingDesiredAction}
-            editable={editable}
-            submitted={false}
-          />
-        </div>
-      ))}
+      {/* Billing Form */}
+      {billing && (
+        <BillingOnboardingForm
+          campaignId={campaign.id}
+          clientPortalId={client.portalId}
+          complete={billing.complete}
+          initialPrimaryContactName={campaign.contactName}
+          initialPrimaryContactEmail={campaign.contactEmail}
+          initialRepresentingClient={billingMeta.representingClient}
+          initialWantsPeakCopy={billingMeta.wantsPeakCopy ?? true}
+          initialCompanyName={billing.companyName}
+          initialBillingAddress={billing.billingAddress}
+          initialBillingContactName={billing.billingContactName}
+          initialBillingContactEmail={billing.billingContactEmail}
+          initialSpecificInvoicingInstructions={billing.specialInstructions}
+        />
+      )}
+
+      {/* Copy Onboarding Forms — one per incomplete round */}
+      {wantsPeakCopy &&
+        incompleteRounds.map(({ round, placements: roundPlacements }) => (
+          <div key={round.id} className="mb-10">
+            <OnboardingForm
+              campaignId={campaign.id}
+              clientPortalId={client.portalId}
+              roundId={round.id}
+              roundLabel={round.label}
+              placements={roundPlacements}
+              initialMessaging={campaign.onboardingMessaging}
+              initialDesiredAction={campaign.onboardingDesiredAction}
+              editable={editable}
+              submitted={false}
+            />
+          </div>
+        ))}
 
       {/* Completed rounds — read-only */}
-      {completedRounds.map(({ round, placements: roundPlacements }) => (
-        <div key={round.id} className="mb-10">
-          <OnboardingForm
-            campaignId={campaign.id}
-            clientPortalId={client.portalId}
-            roundId={round.id}
-            roundLabel={round.label}
-            placements={roundPlacements}
-            initialMessaging={campaign.onboardingMessaging}
-            initialDesiredAction={campaign.onboardingDesiredAction}
-            editable={false}
-            submitted={true}
-          />
-        </div>
-      ))}
+      {wantsPeakCopy &&
+        completedRounds.map(({ round, placements: roundPlacements }) => (
+          <div key={round.id} className="mb-10">
+            <OnboardingForm
+              campaignId={campaign.id}
+              clientPortalId={client.portalId}
+              roundId={round.id}
+              roundLabel={round.label}
+              placements={roundPlacements}
+              initialMessaging={campaign.onboardingMessaging}
+              initialDesiredAction={campaign.onboardingDesiredAction}
+              editable={false}
+              submitted={true}
+            />
+          </div>
+        ))}
 
       {/* Copy being prepared message */}
-      {campaign.status === "Onboarding Form Complete" && !hasPlacementsWithCopy && (
+      {wantsPeakCopy &&
+        campaign.status === "Onboarding Form Complete" &&
+        !hasPlacementsWithCopy && (
         <div className="mb-10 rounded-lg bg-blue-50 border border-blue-200 px-5 py-4">
           <p className="text-sm font-medium text-blue-800">
             Your copy is being prepared
@@ -168,4 +202,26 @@ export default async function CampaignPage({ params }: PageProps) {
       )}
     </div>
   );
+}
+
+function extractBillingMeta(notes?: string): {
+  representingClient?: boolean;
+  wantsPeakCopy?: boolean;
+} {
+  if (!notes) return {};
+  const start = notes.indexOf("<!-- billing-meta:start -->");
+  const end = notes.indexOf("<!-- billing-meta:end -->");
+  if (start === -1 || end === -1 || end < start) return {};
+
+  const raw = notes
+    .slice(start + "<!-- billing-meta:start -->".length, end)
+    .trim();
+  try {
+    return JSON.parse(raw) as {
+      representingClient?: boolean;
+      wantsPeakCopy?: boolean;
+    };
+  } catch {
+    return {};
+  }
 }

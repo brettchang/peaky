@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Placement, PlacementType, Publication, PlacementStatus, AdLineItem } from "@/lib/types";
 import type { PlacementInvoiceLink } from "@/lib/xero-types";
@@ -12,13 +12,12 @@ const PLACEMENT_TYPES: PlacementType[] = [
   "Primary",
   "Secondary",
   "Peak Picks",
-  "Beehiv",
-  "Smart Links",
-  "BLS",
-  "Podcast Ad",
 ];
 
-const PUBLICATIONS: Publication[] = ["The Peak", "Peak Money"];
+const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
+  { value: "The Peak", label: "The Peak Daily Newsletter" },
+  { value: "Peak Money", label: "Peak Money" },
+];
 
 const PLACEMENT_STATUSES: PlacementStatus[] = [
   "New Campaign",
@@ -37,6 +36,16 @@ const CONFLICT_OPTIONS = [
 interface AdminPlacementDetailProps {
   campaignId: string;
   placement: Placement;
+  onboardingAnswers?: {
+    roundLabel?: string;
+    roundComplete?: boolean;
+    campaignMessaging?: string;
+    campaignDesiredAction?: string;
+    placementBrief?: string;
+    placementLink?: string;
+    logoUrl?: string;
+    imageUrl?: string;
+  };
   invoiceLinks?: PlacementInvoiceLink[];
   adLineItems?: AdLineItem[];
   xeroConnected?: boolean;
@@ -45,6 +54,7 @@ interface AdminPlacementDetailProps {
 export function AdminPlacementDetail({
   campaignId,
   placement,
+  onboardingAnswers,
   invoiceLinks = [],
   adLineItems = [],
   xeroConnected = false,
@@ -72,11 +82,17 @@ export function AdminPlacementDetail({
   const [savingPlacementLink, setSavingPlacementLink] = useState(false);
 
   // Copy editing state
+  const [savedCopy, setSavedCopy] = useState(placement.currentCopy);
   const [editedCopy, setEditedCopy] = useState<string | null>(null);
   const [savingCopy, setSavingCopy] = useState(false);
   const [copyExpanded, setCopyExpanded] = useState(false);
+  const [showOnboardingAnswers, setShowOnboardingAnswers] = useState(false);
 
-  const currentCopy = editedCopy ?? placement.currentCopy;
+  useEffect(() => {
+    setSavedCopy(placement.currentCopy);
+  }, [placement.id, placement.currentCopy]);
+
+  const currentCopy = editedCopy ?? savedCopy;
 
   const handleCopyChange = useCallback((val: string) => {
     setEditedCopy(val);
@@ -164,7 +180,7 @@ export function AdminPlacementDetail({
   }
 
   async function handleSaveCopy() {
-    if (editedCopy === null || editedCopy === placement.currentCopy) return;
+    if (editedCopy === null || editedCopy === savedCopy) return;
     setSavingCopy(true);
     try {
       const res = await fetch("/api/update-copy", {
@@ -177,7 +193,47 @@ export function AdminPlacementDetail({
         }),
       });
       if (res.ok) {
+        setSavedCopy(editedCopy);
         setEditedCopy(null);
+        router.refresh();
+      }
+    } finally {
+      setSavingCopy(false);
+    }
+  }
+
+  async function handlePeakTeamApproved() {
+    const hasDraftChanges =
+      editedCopy !== null && editedCopy !== savedCopy;
+
+    setSavingCopy(true);
+    try {
+      if (hasDraftChanges) {
+        const nextCopy = editedCopy;
+        const saveRes = await fetch("/api/update-copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaignId,
+            placementId: placement.id,
+            copy: editedCopy,
+          }),
+        });
+        if (!saveRes.ok) return;
+        setSavedCopy(nextCopy);
+        setEditedCopy(null);
+      }
+
+      const statusRes = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId: placement.id,
+          status: "Peak Team Review Complete",
+        }),
+      });
+      if (statusRes.ok) {
         router.refresh();
       }
     } finally {
@@ -246,8 +302,8 @@ export function AdminPlacementDetail({
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
                   {PUBLICATIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
+                    <option key={p.value} value={p.value}>
+                      {p.label}
                     </option>
                   ))}
                 </select>
@@ -426,13 +482,13 @@ export function AdminPlacementDetail({
               </p>
             </div>
             {placement.linkToPlacement && (
-              <div>
+              <div className="col-span-2 sm:col-span-3">
                 <p className="text-xs text-gray-500">Link</p>
                 <a
                   href={placement.linkToPlacement}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  className="mt-0.5 block break-all text-sm font-medium text-blue-600 hover:text-blue-700"
                 >
                   {placement.linkToPlacement}
                 </a>
@@ -446,22 +502,23 @@ export function AdminPlacementDetail({
                 </p>
               </div>
             )}
-            {placement.imageUrl && (
-              <div>
-                <p className="text-xs text-gray-500">Image URL</p>
-                <p className="truncate text-sm font-medium text-gray-900">
-                  {placement.imageUrl}
-                </p>
-              </div>
-            )}
-            {placement.logoUrl && (
-              <div>
-                <p className="text-xs text-gray-500">Logo URL</p>
-                <p className="truncate text-sm font-medium text-gray-900">
-                  {placement.logoUrl}
-                </p>
-              </div>
-            )}
+            {placement.type === "Primary" &&
+              (placement.logoUrl || placement.imageUrl) && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-xs text-gray-500">Uploaded Assets</p>
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {placement.logoUrl && (
+                      <AssetPreviewCard label="Logo" url={placement.logoUrl} />
+                    )}
+                    {placement.imageUrl && (
+                      <AssetPreviewCard
+                        label="Story Image"
+                        url={placement.imageUrl}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             {placement.notes && (
               <div className="col-span-2 sm:col-span-3">
                 <p className="text-xs text-gray-500">Notes</p>
@@ -521,12 +578,102 @@ export function AdminPlacementDetail({
             href={placement.linkToPlacement}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-blue-600 hover:text-blue-700"
+            className="block break-all text-sm text-blue-600 hover:text-blue-700"
           >
             {placement.linkToPlacement}
           </a>
         ) : (
           <p className="text-sm text-gray-400">No link set yet.</p>
+        )}
+      </div>
+
+      {/* Copy onboarding answers */}
+      <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">
+            Copy Onboarding Answers
+          </h3>
+          <button
+            onClick={() => setShowOnboardingAnswers((prev) => !prev)}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {showOnboardingAnswers ? "Hide" : "Show"}
+          </button>
+        </div>
+
+        {showOnboardingAnswers && (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-gray-500">Onboarding Round</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {onboardingAnswers?.roundLabel || placement.onboardingRoundId || "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Round Status</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {onboardingAnswers?.roundComplete === undefined
+                    ? "—"
+                    : onboardingAnswers.roundComplete
+                    ? "Submitted"
+                    : "Pending"}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Campaign Messaging</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.campaignMessaging || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Desired Reader Action</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.campaignDesiredAction || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Placement Brief</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.placementBrief || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Placement Link</p>
+              {onboardingAnswers?.placementLink ? (
+                <a
+                  href={onboardingAnswers.placementLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block break-all text-sm text-blue-600 hover:text-blue-700"
+                >
+                  {onboardingAnswers.placementLink}
+                </a>
+              ) : (
+                <p className="mt-1 text-sm text-gray-900">—</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-gray-500">Logo URL</p>
+                <p className="mt-1 break-all text-sm text-gray-900">
+                  {onboardingAnswers?.logoUrl || "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Story Image URL</p>
+                <p className="mt-1 break-all text-sm text-gray-900">
+                  {onboardingAnswers?.imageUrl || "—"}
+                </p>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -565,6 +712,19 @@ export function AdminPlacementDetail({
                 </button>
               </div>
             )}
+
+            {(placement.status === "Copywriting in Progress" ||
+              placement.status === "New Campaign") && (
+              <div className="mt-3">
+                <button
+                  onClick={handlePeakTeamApproved}
+                  disabled={savingCopy}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingCopy ? "Updating..." : "The Peak Team Has Approved"}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -584,6 +744,7 @@ export function AdminPlacementDetail({
         campaignId={campaignId}
         placementId={placement.id}
         placementType={placement.type}
+        placementPublication={placement.publication}
         invoiceLinks={invoiceLinks}
         adLineItems={adLineItems}
         xeroConnected={xeroConnected}
@@ -595,12 +756,45 @@ export function AdminPlacementDetail({
   );
 }
 
+function AssetPreviewCard({ label, url }: { label: string; url: string }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <p className="text-xs font-medium text-gray-600">{label}</p>
+      <div
+        className="mt-2 h-28 w-full rounded border border-gray-200 bg-white bg-contain bg-center bg-no-repeat"
+        style={{ backgroundImage: `url("${url}")` }}
+      />
+      <div className="mt-2 flex items-center gap-3">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium text-blue-600 hover:text-blue-700"
+        >
+          View
+        </a>
+        <a
+          href={url}
+          download
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium text-gray-700 hover:text-gray-900"
+        >
+          Download
+        </a>
+      </div>
+      <p className="mt-1 truncate text-xs text-gray-500">{url}</p>
+    </div>
+  );
+}
+
 // ─── Placement Invoice Section ───────────────────────────────
 
 function PlacementInvoiceSection({
   campaignId,
   placementId,
   placementType,
+  placementPublication,
   invoiceLinks,
   adLineItems,
   xeroConnected,
@@ -608,6 +802,7 @@ function PlacementInvoiceSection({
   campaignId: string;
   placementId: string;
   placementType: PlacementType;
+  placementPublication: Publication;
   invoiceLinks: PlacementInvoiceLink[];
   adLineItems: AdLineItem[];
   xeroConnected: boolean;
@@ -616,7 +811,12 @@ function PlacementInvoiceSection({
   const [showModal, setShowModal] = useState(false);
   const [unlinking, setUnlinking] = useState<string | null>(null);
 
-  const cost = adLineItems.find((li) => li.type === placementType)?.pricePerUnit ?? null;
+  const cost =
+    adLineItems.find(
+      (li) =>
+        li.type === placementType &&
+        (li.publication ? li.publication === placementPublication : true)
+    )?.pricePerUnit ?? null;
   const invoiceTotal = invoiceLinks.reduce(
     (sum, l) => sum + (l.invoice?.total ?? 0),
     0

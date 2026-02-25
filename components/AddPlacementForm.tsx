@@ -8,13 +8,12 @@ const PLACEMENT_TYPES = [
   "Primary",
   "Secondary",
   "Peak Picks",
-  "Beehiv",
-  "Smart Links",
-  "BLS",
-  "Podcast Ad",
 ] as const;
 
-const PUBLICATIONS = ["The Peak", "Peak Money"] as const;
+const PUBLICATIONS = [
+  { value: "The Peak", label: "The Peak Daily Newsletter" },
+  { value: "Peak Money", label: "Peak Money" },
+] as const;
 
 const STATUSES = [
   "New Campaign",
@@ -125,8 +124,8 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                   >
                     <option value="">Select publication...</option>
                     {PUBLICATIONS.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
+                      <option key={p.value} value={p.value}>
+                        {p.label}
                       </option>
                     ))}
                   </select>

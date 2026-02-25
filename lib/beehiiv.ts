@@ -40,6 +40,14 @@ interface BeehiivClickEntry {
 }
 
 interface BeehiivPostStats {
+  // Beehiiv returns email-level stats nested under stats.email
+  email?: {
+    recipients?: number;
+    opens?: number;
+    unique_opens?: number;
+    open_rate?: number;
+  };
+  // Legacy/fallback shape support (in case API payload varies)
   recipients?: number;
   opens?: number;
   unique_opens?: number;
@@ -166,13 +174,21 @@ export function extractStats(
   clickEntry?: BeehiivClickEntry | null
 ): PerformanceStats {
   const s = post.stats;
+  const email = s?.email;
   const stats: PerformanceStats = {};
 
   // Newsletter-level stats
-  if (s?.recipients != null) stats.totalSends = s.recipients;
-  if (s?.opens != null) stats.totalOpens = s.opens;
-  if (s?.unique_opens != null) stats.uniqueOpens = s.unique_opens;
-  if (s?.open_rate != null) stats.openRate = normalizeRate(s.open_rate);
+  if (email?.recipients != null) stats.totalSends = email.recipients;
+  else if (s?.recipients != null) stats.totalSends = s.recipients;
+
+  if (email?.opens != null) stats.totalOpens = email.opens;
+  else if (s?.opens != null) stats.totalOpens = s.opens;
+
+  if (email?.unique_opens != null) stats.uniqueOpens = email.unique_opens;
+  else if (s?.unique_opens != null) stats.uniqueOpens = s.unique_opens;
+
+  if (email?.open_rate != null) stats.openRate = normalizeRate(email.open_rate);
+  else if (s?.open_rate != null) stats.openRate = normalizeRate(s.open_rate);
 
   // Ad-specific stats from matched click entry
   if (clickEntry) {

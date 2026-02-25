@@ -16,7 +16,9 @@ interface CampaignMetadataEditorProps {
   campaignId: string;
   campaign: {
     name: string;
+    clientName?: string;
     status: CampaignStatus;
+    salesPerson?: string;
     campaignManager?: string;
     contactName?: string;
     contactEmail?: string;
@@ -33,11 +35,14 @@ export function CampaignMetadataEditor({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [form, setForm] = useState({
     name: campaign.name,
+    clientName: campaign.clientName ?? "",
     status: campaign.status,
+    salesPerson: campaign.salesPerson ?? "",
     campaignManager: campaign.campaignManager ?? "",
     contactName: campaign.contactName ?? "",
     contactEmail: campaign.contactEmail ?? "",
@@ -47,17 +52,21 @@ export function CampaignMetadataEditor({
   function handleCancel() {
     setForm({
       name: campaign.name,
+      clientName: campaign.clientName ?? "",
       status: campaign.status,
+      salesPerson: campaign.salesPerson ?? "",
       campaignManager: campaign.campaignManager ?? "",
       contactName: campaign.contactName ?? "",
       contactEmail: campaign.contactEmail ?? "",
       notes: campaign.notes ?? "",
     });
+    setError(null);
     setEditing(false);
   }
 
   async function handleSave() {
     setSaving(true);
+    setError(null);
     try {
       const res = await fetch("/api/update-campaign", {
         method: "POST",
@@ -65,7 +74,9 @@ export function CampaignMetadataEditor({
         body: JSON.stringify({
           campaignId,
           name: form.name,
+          clientName: form.clientName,
           status: form.status,
+          salesPerson: form.salesPerson || null,
           campaignManager: form.campaignManager || null,
           contactName: form.contactName || null,
           contactEmail: form.contactEmail || null,
@@ -75,6 +86,9 @@ export function CampaignMetadataEditor({
       if (res.ok) {
         setEditing(false);
         router.refresh();
+      } else {
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Failed to update campaign");
       }
     } finally {
       setSaving(false);
@@ -97,6 +111,15 @@ export function CampaignMetadataEditor({
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
           </div>
+          <div className="col-span-2 sm:col-span-1">
+            <label className="block text-xs text-gray-500">Client Name</label>
+            <input
+              type="text"
+              value={form.clientName}
+              onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
+          </div>
           <div>
             <label className="block text-xs text-gray-500">Status</label>
             <select
@@ -112,6 +135,17 @@ export function CampaignMetadataEditor({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500">Sales Person</label>
+            <input
+              type="text"
+              value={form.salesPerson}
+              onChange={(e) =>
+                setForm({ ...form, salesPerson: e.target.value })
+              }
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
           </div>
           <div>
             <label className="block text-xs text-gray-500">
@@ -173,6 +207,7 @@ export function CampaignMetadataEditor({
             {saving ? "Saving..." : "Save"}
           </button>
         </div>
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       </div>
     );
   }
@@ -232,6 +267,22 @@ export function CampaignMetadataEditor({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
+        {campaign.clientName && (
+          <div>
+            <p className="text-xs text-gray-500">Client</p>
+            <p className="text-sm font-medium text-gray-900">
+              {campaign.clientName}
+            </p>
+          </div>
+        )}
+        {campaign.salesPerson && (
+          <div>
+            <p className="text-xs text-gray-500">Sales Person</p>
+            <p className="text-sm font-medium text-gray-900">
+              {campaign.salesPerson}
+            </p>
+          </div>
+        )}
         {campaign.campaignManager && (
           <div>
             <p className="text-xs text-gray-500">Campaign Manager</p>
