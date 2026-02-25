@@ -130,6 +130,10 @@ export default async function CampaignDetailPage({
       <OnboardingStatus
         rounds={campaign.onboardingRounds}
         campaignId={campaign.id}
+        campaignName={campaign.name}
+        clientName={client?.name ?? "Client"}
+        recipientEmail={primaryContact?.email ?? campaign.contactEmail}
+        recipientName={primaryContact?.name ?? campaign.contactName}
         billingOnboarding={campaign.billingOnboarding}
         placements={campaign.placements}
         onboardingSubmittedAt={campaign.onboardingSubmittedAt}

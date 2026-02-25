@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { OnboardingRound, BillingOnboarding, Placement } from "@/lib/types";
+import { CampaignOnboardingOverrides } from "@/lib/onboarding-overrides";
 
 function cadenceLabel(cadence: BillingOnboarding["invoiceCadence"]): string {
   if (!cadence) return "Completed";
@@ -26,17 +27,27 @@ function placementLabel(p: Placement): string {
 export function OnboardingStatus({
   rounds,
   campaignId,
+  campaignName,
+  clientName,
+  recipientEmail,
+  recipientName,
   billingOnboarding,
   placements = [],
   onboardingSubmittedAt,
   portalUrl,
+  overrides,
 }: {
   rounds: OnboardingRound[];
   campaignId: string;
+  campaignName: string;
+  clientName: string;
+  recipientEmail?: string;
+  recipientName?: string;
   billingOnboarding?: BillingOnboarding;
   placements?: Placement[];
   onboardingSubmittedAt?: string;
   portalUrl?: string;
+  overrides?: CampaignOnboardingOverrides;
 }) {
   const router = useRouter();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -45,6 +56,11 @@ export function OnboardingStatus({
   const [creating, setCreating] = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
   const [uploadingBilling, setUploadingBilling] = useState(false);
+  const [overridingId, setOverridingId] = useState<string | null>(null);
+  const [sendingCopyUpdateId, setSendingCopyUpdateId] = useState<string | null>(null);
+  const [copyUpdateMessageByRound, setCopyUpdateMessageByRound] = useState<
+    Record<string, { type: "success" | "error"; text: string }>
+  >({});
   const billingFileRef = useRef<HTMLInputElement | null>(null);
 
   const unassigned = placements.filter((p) => !p.onboardingRoundId);
@@ -116,6 +132,79 @@ export function OnboardingStatus({
     }
   }
 
+  async function handleOverride(type: "round" | "billing", roundId?: string) {
+    const reason = window.prompt(
+      "Explain why you are overriding this onboarding form (required)."
+    );
+    if (!reason || !reason.trim()) return;
+
+    const id = type === "round" ? roundId ?? "round" : "billing";
+    setOverridingId(id);
+    try {
+      const res = await fetch("/api/override-onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          type,
+          roundId,
+          reason: reason.trim(),
+        }),
+      });
+      if (res.ok) {
+        router.refresh();
+      }
+    } finally {
+      setOverridingId(null);
+    }
+  }
+
+  async function handleSendCopywritingUpdate(roundId: string) {
+    if (!recipientEmail || !portalUrl) return;
+
+    setSendingCopyUpdateId(roundId);
+    setCopyUpdateMessageByRound((prev) => {
+      const next = { ...prev };
+      delete next[roundId];
+      return next;
+    });
+    try {
+      const res = await fetch("/api/send-copywriting-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          campaignName,
+          clientName,
+          recipientEmail,
+          recipientName,
+          portalCampaignUrl: `${portalUrl}/${campaignId}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to send copywriting update");
+      }
+      setCopyUpdateMessageByRound((prev) => ({
+        ...prev,
+        [roundId]: { type: "success", text: "Copywriting update sent." },
+      }));
+    } catch (error: unknown) {
+      setCopyUpdateMessageByRound((prev) => ({
+        ...prev,
+        [roundId]: {
+          type: "error",
+          text:
+            error instanceof Error
+              ? error.message
+              : "Failed to send copywriting update",
+        },
+      }));
+    } finally {
+      setSendingCopyUpdateId(null);
+    }
+  }
+
   return (
     <div className="mb-8 space-y-3">
       {/* Copy Onboarding section */}
@@ -183,23 +272,67 @@ export function OnboardingStatus({
                   <p className="text-xs text-gray-500">
                     {round.complete ? "Submitted" : "Waiting on client"}
                   </p>
+                  {overrides?.rounds?.[round.id] && (
+                    <p className="text-xs text-fuchsia-700">
+                      Override: {overrides.rounds[round.id].reason}
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {round.complete && portalUrl && (
-                  <button
-                    onClick={() => handleCopy(round.id, `${portalUrl}/${campaignId}`)}
-                    className="rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
-                  >
-                    {copiedId === round.id ? "Copied!" : "Copy Portal Link"}
-                  </button>
+              <div className="flex items-start gap-2">
+                {portalUrl && (
+                  <div className="flex flex-col items-end gap-2">
+                    {round.complete ? (
+                      <button
+                        onClick={() => handleCopy(round.id, `${portalUrl}/${campaignId}`)}
+                        className="rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
+                      >
+                        {copiedId === round.id ? "Copied!" : "Copy Portal Link"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleCopy(round.id, `${portalUrl}/${campaignId}`)}
+                        className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                      >
+                        {copiedId === round.id ? "Copied!" : "Copy Portal Link"}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleSendCopywritingUpdate(round.id)}
+                      disabled={sendingCopyUpdateId === round.id || !recipientEmail}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {sendingCopyUpdateId === round.id
+                        ? "Sending..."
+                        : "Send Copywriting Update"}
+                    </button>
+                    {copyUpdateMessageByRound[round.id] && (
+                      <p
+                        className={`text-xs ${
+                          copyUpdateMessageByRound[round.id].type === "error"
+                            ? "text-red-600"
+                            : "text-green-700"
+                        }`}
+                      >
+                        {copyUpdateMessageByRound[round.id].text}
+                      </p>
+                    )}
+                    {!recipientEmail && (
+                      <p className="text-xs text-amber-700">
+                        Add a contact email first.
+                      </p>
+                    )}
+                  </div>
                 )}
-                {!round.complete && portalUrl && (
+                {!round.complete && (
                   <button
-                    onClick={() => handleCopy(round.id, `${portalUrl}/${campaignId}`)}
-                    className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                    onClick={() => handleOverride("round", round.id)}
+                    disabled={overridingId === round.id}
+                    className="rounded-lg border border-fuchsia-300 bg-white px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-50"
                   >
-                    {copiedId === round.id ? "Copied!" : "Copy Portal Link"}
+                    {overridingId === round.id
+                      ? "Overriding..."
+                      : "Override Complete"}
                   </button>
                 )}
               </div>
@@ -329,6 +462,11 @@ export function OnboardingStatus({
                     ? cadenceLabel(billingOnboarding.invoiceCadence)
                     : "Waiting on form"}
                 </p>
+                {overrides?.billing && (
+                  <p className="text-xs text-fuchsia-700">
+                    Override: {overrides.billing.reason}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -361,6 +499,15 @@ export function OnboardingStatus({
                     className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                   >
                     {uploadingBilling ? "Uploading..." : "Upload Doc"}
+                  </button>
+                  <button
+                    onClick={() => handleOverride("billing")}
+                    disabled={overridingId === "billing"}
+                    className="rounded-lg border border-fuchsia-300 bg-white px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-50"
+                  >
+                    {overridingId === "billing"
+                      ? "Overriding..."
+                      : "Override Complete"}
                   </button>
                 </>
               )}

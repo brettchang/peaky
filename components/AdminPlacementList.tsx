@@ -317,6 +317,40 @@ export function AdminPlacementList({
     }
   }
 
+  const hasOnboardingRounds = (onboardingRounds?.length ?? 0) > 0;
+  const roundIdSet = new Set((onboardingRounds ?? []).map((round) => round.id));
+  const groupedSections: Array<{
+    key: string;
+    title?: string;
+    subtitle?: string;
+    placements: Placement[];
+  }> = hasOnboardingRounds
+    ? [
+        ...(onboardingRounds ?? [])
+          .map((round) => ({
+            key: `round-${round.id}`,
+            title: round.label?.trim() || round.id,
+            subtitle: round.complete ? "Onboarding complete" : "Onboarding pending",
+            placements: placements.filter((p) => p.onboardingRoundId === round.id),
+          }))
+          .filter((section) => section.placements.length > 0),
+        {
+          key: "round-unassigned",
+          title: "Unassigned",
+          subtitle: "No onboarding round linked",
+          placements: placements.filter((p) => !p.onboardingRoundId),
+        },
+        {
+          key: "round-orphaned",
+          title: "Other Rounds",
+          subtitle: "Linked to rounds not in this campaign list",
+          placements: placements.filter(
+            (p) => p.onboardingRoundId && !roundIdSet.has(p.onboardingRoundId)
+          ),
+        },
+      ].filter((section) => section.placements.length > 0)
+    : [{ key: "all-placements", placements }];
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -334,415 +368,434 @@ export function AdminPlacementList({
         </div>
       </div>
 
-      <div className="space-y-4">
-        {placements.map((placement) => {
-          const isExpanded = expandedId === placement.id;
-          return (
-            <div
-              key={placement.id}
-              className="rounded-lg border border-gray-200 bg-white"
-            >
-              <div className="px-5 py-5">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <Link
-                        href={`/dashboard/${campaignId}/${placement.id}`}
-                        className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
-                      >
-                        {placement.name}
-                      </Link>
-                      <select
-                        value={placement.status}
-                        disabled={updatingId === placement.id}
-                        onChange={(e) =>
-                          handleStatusChange(placement.id, e.target.value)
-                        }
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
-                      >
-                        {getPlacementStatusesFor(
-                          placement.type,
-                          placement.publication
-                        ).map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                      {isClientReviewStatus(placement.status) && (
-                        <button
-                          onClick={() => {
-                            const nextStatus =
-                              placement.status === "Script Review by Client"
-                                ? "Approved Script"
-                                : placement.status === "Audio Sent for Approval" ||
-                                    placement.status === "Audio Sent"
-                                  ? "Audio Approved"
-                                  : placement.status === "Questions In Review" ||
-                                      placement.status === "Client Reviewing Interview"
-                                    ? "Approved Interview"
-                                    : "Approved";
-                            handleStatusChange(placement.id, nextStatus);
-                          }}
-                          disabled={updatingId === placement.id}
-                          className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                        >
-                          Mark Approved
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs text-gray-600">
-                      <span className="rounded bg-gray-100 px-2 py-1">
-                        {placement.type}
-                      </span>
-                      <span className="rounded bg-gray-100 px-2 py-1">
-                        {placement.publication}
-                      </span>
-                      <span className="rounded bg-gray-100 px-2 py-1">
-                        v{placement.copyVersion}
-                      </span>
-                      {placement.scheduledDate && placement.scheduledEndDate && (
-                        <span className="rounded bg-gray-100 px-2 py-1">
-                          {placement.scheduledDate} - {placement.scheduledEndDate}
-                        </span>
-                      )}
-                      {isPodcastInterviewType(placement.type) && (
-                        <span className="rounded bg-gray-100 px-2 py-1">
-                          Interview:{" "}
-                          {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="w-full space-y-2 xl:w-auto xl:min-w-[26rem]">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label
-                        htmlFor={`date-${placement.id}`}
-                        className="text-sm text-gray-500 xl:w-12"
-                      >
-                        {placement.publication === PODCAST_PUBLICATION
-                          ? "Start:"
-                          : "Scheduled:"}
-                      </label>
-                      <input
-                        id={`date-${placement.id}`}
-                        type="date"
-                        defaultValue={placement.scheduledDate ?? ""}
-                        disabled={updatingId === placement.id}
-                        onChange={(e) =>
-                          handleDateChange(placement.id, e.target.value)
-                        }
-                        className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
-                      />
-                      {placement.publication === PODCAST_PUBLICATION && (
-                        <>
-                          <label className="text-sm text-gray-500">End:</label>
-                          <input
-                            type="date"
-                            defaultValue={placement.scheduledEndDate ?? ""}
-                            disabled={updatingId === placement.id}
-                            onChange={(e) =>
-                              handleEndDateChange(placement.id, e.target.value)
-                            }
-                            className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
-                          />
-                        </>
-                      )}
-                      {isPodcastInterviewType(placement.type) && (
-                        <label className="flex items-center gap-1 text-xs text-gray-600">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(placement.interviewScheduled)}
-                            disabled={updatingId === placement.id}
-                            onChange={(e) =>
-                              handleInterviewScheduledChange(
-                                placement.id,
-                                e.target.checked
-                              )
-                            }
-                          />
-                          Interview scheduled
-                        </label>
-                      )}
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() =>
-                          setExpandedId(isExpanded ? null : placement.id)
-                        }
-                        className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        {isExpanded ? "Hide Copy" : "Edit Copy"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Inline link editing + Check Results */}
-                <div className="mt-2 flex items-center gap-2 text-sm">
-                  <span className="text-xs text-gray-500">Link:</span>
-                  {editingLinkId === placement.id ? (
-                    <>
-                      <input
-                        type="url"
-                        value={linkDraft}
-                        onChange={(e) => setLinkDraft(e.target.value)}
-                        placeholder="https://..."
-                        className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveLink(placement.id);
-                          if (e.key === "Escape") setEditingLinkId(null);
-                        }}
-                      />
-                      <button
-                        onClick={() => handleSaveLink(placement.id)}
-                        disabled={updatingId === placement.id}
-                        className="rounded bg-gray-900 px-2 py-0.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingLinkId(null)}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {placement.linkToPlacement ? (
-                        <a
-                          href={placement.linkToPlacement}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="truncate text-xs text-blue-600 hover:text-blue-700"
-                        >
-                          {placement.linkToPlacement}
-                        </a>
-                      ) : (
-                        <span className="text-xs text-gray-400">Not set</span>
-                      )}
-                      <button
-                        onClick={() => startEditingLink(placement)}
-                        className="text-xs text-gray-400 hover:text-gray-600"
-                      >
-                        {placement.linkToPlacement ? "Edit" : "Add"}
-                      </button>
-                      {(placement.linkToPlacement || placement.beehiivPostId) && (
-                        <>
-                          <span className="text-gray-300">|</span>
-                          <button
-                            onClick={() => handleSyncStats(placement.id)}
-                            disabled={syncingId === placement.id}
-                            className="text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
-                          >
-                            {syncingId === placement.id
-                              ? "Checking..."
-                              : placement.stats
-                                ? "Re-check Results"
-                                : "Check Results"}
-                          </button>
-                        </>
-                      )}
-                      {syncMessages[placement.id] && (
-                        <span
-                          className={`text-xs ${
-                            syncMessages[placement.id].type === "error"
-                              ? "text-red-600"
-                              : "text-green-600"
-                          }`}
-                        >
-                          {syncMessages[placement.id].text}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Compact stats row */}
-                {placement.stats && (
-                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
-                    {placement.stats.totalSends != null && (
-                      <span className="text-xs text-gray-500">
-                        Sends:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.totalSends.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                    {placement.stats.openRate != null && (
-                      <span className="text-xs text-gray-500">
-                        Open Rate:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.openRate}%
-                        </span>
-                      </span>
-                    )}
-                    {placement.stats.totalOpens != null && (
-                      <span className="text-xs text-gray-500">
-                        Total Opens:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.totalOpens.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                    {placement.stats.uniqueOpens != null && (
-                      <span className="text-xs text-gray-500">
-                        Unique Opens:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.uniqueOpens.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                    {placement.stats.uniqueClicks != null && (
-                      <span className="text-xs text-gray-500">
-                        Clicks:{" "}
-                        <span className="font-semibold text-gray-900">
-                          {placement.stats.uniqueClicks.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                  </div>
+      <div className="space-y-6">
+        {groupedSections.map((section) => (
+          <div key={section.key} className="space-y-3">
+            {section.title && (
+              <div className="px-1">
+                <h3 className="text-sm font-semibold text-gray-800">
+                  {section.title}{" "}
+                  <span className="font-normal text-gray-500">
+                    ({section.placements.length})
+                  </span>
+                </h3>
+                {section.subtitle && (
+                  <p className="text-xs text-gray-500">{section.subtitle}</p>
                 )}
-
-                {/* Cost + Invoice row */}
-                {(() => {
-                  const cost = getPlacementCost(placement);
-                  const links = invoiceLinksByPlacement[placement.id] ?? [];
-                  const invoiceTotal = links.reduce(
-                    (sum, l) => sum + (l.invoice?.total ?? 0),
-                    0
-                  );
-                  const showRow = cost != null || links.length > 0 || xeroConnected;
-                  if (!showRow) return null;
-                  return (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                      {cost != null && (
-                        <span className="text-gray-500">
-                          Cost:{" "}
-                          <span className="font-semibold text-gray-900">
-                            {formatCurrency(cost)}
-                          </span>
-                        </span>
-                      )}
-                      {links.length > 0 && (
-                        <span className="text-gray-500">
-                          {links.length} invoice{links.length !== 1 ? "s" : ""} —{" "}
-                          <span className="font-semibold text-gray-900">
-                            {formatCurrency(invoiceTotal)}
-                          </span>
-                        </span>
-                      )}
-                      {links.map((link) => (
-                        <span
-                          key={link.id}
-                          className="inline-flex items-center gap-1"
-                        >
-                          <span className="font-medium text-gray-700">
-                            {link.invoice?.invoiceNumber ||
-                              link.xeroInvoiceId.slice(0, 8)}
-                          </span>
-                          {link.invoice && (
-                            <InvoiceStatusBadge status={link.invoice.status} />
-                          )}
-                          <button
-                            onClick={() => handleUnlinkInvoice(link.id)}
-                            disabled={unlinkingInvoiceId === link.id}
-                            className="text-red-400 hover:text-red-600 disabled:opacity-50"
-                          >
-                            {unlinkingInvoiceId === link.id ? "..." : "×"}
-                          </button>
-                        </span>
-                      ))}
-                      {xeroConnected && (
-                        <button
-                          onClick={() =>
-                            setInvoiceModalPlacementId(placement.id)
-                          }
-                          className="font-medium text-blue-600 hover:text-blue-700"
-                        >
-                          + Link Invoice
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
               </div>
+            )}
+            <div className="space-y-4">
+              {section.placements.map((placement) => {
+                const isExpanded = expandedId === placement.id;
+                return (
+                  <div
+                    key={placement.id}
+                    className="rounded-lg border border-gray-200 bg-white"
+                  >
+                    <div className="px-5 py-5">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <Link
+                              href={`/dashboard/${campaignId}/${placement.id}`}
+                              className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                            >
+                              {placement.name}
+                            </Link>
+                            <select
+                              value={placement.status}
+                              disabled={updatingId === placement.id}
+                              onChange={(e) =>
+                                handleStatusChange(placement.id, e.target.value)
+                              }
+                              className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
+                            >
+                              {getPlacementStatusesFor(
+                                placement.type,
+                                placement.publication
+                              ).map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                            {isClientReviewStatus(placement.status) && (
+                              <button
+                                onClick={() => {
+                                  const nextStatus =
+                                    placement.status === "Script Review by Client"
+                                      ? "Approved Script"
+                                      : placement.status === "Audio Sent for Approval" ||
+                                          placement.status === "Audio Sent"
+                                        ? "Audio Approved"
+                                        : placement.status === "Questions In Review" ||
+                                            placement.status === "Client Reviewing Interview"
+                                          ? "Approved Interview"
+                                          : "Approved";
+                                  handleStatusChange(placement.id, nextStatus);
+                                }}
+                                disabled={updatingId === placement.id}
+                                className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                              >
+                                Mark Approved
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                            <span className="rounded bg-gray-100 px-2 py-1">
+                              {placement.type}
+                            </span>
+                            <span className="rounded bg-gray-100 px-2 py-1">
+                              {placement.publication}
+                            </span>
+                            <span className="rounded bg-gray-100 px-2 py-1">
+                              v{placement.copyVersion}
+                            </span>
+                            {placement.scheduledDate && placement.scheduledEndDate && (
+                              <span className="rounded bg-gray-100 px-2 py-1">
+                                {placement.scheduledDate} - {placement.scheduledEndDate}
+                              </span>
+                            )}
+                            {isPodcastInterviewType(placement.type) && (
+                              <span className="rounded bg-gray-100 px-2 py-1">
+                                Interview:{" "}
+                                {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-              {isExpanded && (
-                <div className="border-t border-gray-200 px-5 py-4">
-                  <CopyEditor
-                    value={getEditedCopy(placement)}
-                    onChange={(val) => handleCopyChange(placement.id, val)}
-                  />
+                        <div className="w-full space-y-2 xl:w-auto xl:min-w-[26rem]">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label
+                              htmlFor={`date-${placement.id}`}
+                              className="text-sm text-gray-500 xl:w-12"
+                            >
+                              {placement.publication === PODCAST_PUBLICATION
+                                ? "Start:"
+                                : "Scheduled:"}
+                            </label>
+                            <input
+                              id={`date-${placement.id}`}
+                              type="date"
+                              defaultValue={placement.scheduledDate ?? ""}
+                              disabled={updatingId === placement.id}
+                              onChange={(e) =>
+                                handleDateChange(placement.id, e.target.value)
+                              }
+                              className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                            />
+                            {placement.publication === PODCAST_PUBLICATION && (
+                              <>
+                                <label className="text-sm text-gray-500">End:</label>
+                                <input
+                                  type="date"
+                                  defaultValue={placement.scheduledEndDate ?? ""}
+                                  disabled={updatingId === placement.id}
+                                  onChange={(e) =>
+                                    handleEndDateChange(placement.id, e.target.value)
+                                  }
+                                  className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                                />
+                              </>
+                            )}
+                            {isPodcastInterviewType(placement.type) && (
+                              <label className="flex items-center gap-1 text-xs text-gray-600">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(placement.interviewScheduled)}
+                                  disabled={updatingId === placement.id}
+                                  onChange={(e) =>
+                                    handleInterviewScheduledChange(
+                                      placement.id,
+                                      e.target.checked
+                                    )
+                                  }
+                                />
+                                Interview scheduled
+                              </label>
+                            )}
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() =>
+                                setExpandedId(isExpanded ? null : placement.id)
+                              }
+                              className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                              {isExpanded ? "Hide Copy" : "Edit Copy"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
 
-                  {editedCopy[placement.id] !== undefined &&
-                    editedCopy[placement.id] !== placement.currentCopy && (
-                      <div className="mt-3 flex items-center gap-3">
-                        <button
-                          onClick={() => handleSaveCopy(placement.id)}
-                          disabled={savingCopyId === placement.id}
-                          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                        >
-                          {savingCopyId === placement.id
-                            ? "Saving..."
-                            : "Save Copy"}
-                        </button>
-                        <button
-                          onClick={() =>
-                            setEditedCopy((prev) => {
-                              const next = { ...prev };
-                              delete next[placement.id];
-                              return next;
-                            })
-                          }
-                          className="text-sm text-gray-500 hover:text-gray-700"
-                        >
-                          Discard changes
-                        </button>
+                      {/* Inline link editing + Check Results */}
+                      <div className="mt-2 flex items-center gap-2 text-sm">
+                        <span className="text-xs text-gray-500">Link:</span>
+                        {editingLinkId === placement.id ? (
+                          <>
+                            <input
+                              type="url"
+                              value={linkDraft}
+                              onChange={(e) => setLinkDraft(e.target.value)}
+                              placeholder="https://..."
+                              className="min-w-0 flex-1 rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveLink(placement.id);
+                                if (e.key === "Escape") setEditingLinkId(null);
+                              }}
+                            />
+                            <button
+                              onClick={() => handleSaveLink(placement.id)}
+                              disabled={updatingId === placement.id}
+                              className="rounded bg-gray-900 px-2 py-0.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setEditingLinkId(null)}
+                              className="text-xs text-gray-500 hover:text-gray-700"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {placement.linkToPlacement ? (
+                              <a
+                                href={placement.linkToPlacement}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="truncate text-xs text-blue-600 hover:text-blue-700"
+                              >
+                                {placement.linkToPlacement}
+                              </a>
+                            ) : (
+                              <span className="text-xs text-gray-400">Not set</span>
+                            )}
+                            <button
+                              onClick={() => startEditingLink(placement)}
+                              className="text-xs text-gray-400 hover:text-gray-600"
+                            >
+                              {placement.linkToPlacement ? "Edit" : "Add"}
+                            </button>
+                            {(placement.linkToPlacement || placement.beehiivPostId) && (
+                              <>
+                                <span className="text-gray-300">|</span>
+                                <button
+                                  onClick={() => handleSyncStats(placement.id)}
+                                  disabled={syncingId === placement.id}
+                                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                                >
+                                  {syncingId === placement.id
+                                    ? "Checking..."
+                                    : placement.stats
+                                      ? "Re-check Results"
+                                      : "Check Results"}
+                                </button>
+                              </>
+                            )}
+                            {syncMessages[placement.id] && (
+                              <span
+                                className={`text-xs ${
+                                  syncMessages[placement.id].type === "error"
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`}
+                              >
+                                {syncMessages[placement.id].text}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Compact stats row */}
+                      {placement.stats && (
+                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+                          {placement.stats.totalSends != null && (
+                            <span className="text-xs text-gray-500">
+                              Sends:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {placement.stats.totalSends.toLocaleString()}
+                              </span>
+                            </span>
+                          )}
+                          {placement.stats.openRate != null && (
+                            <span className="text-xs text-gray-500">
+                              Open Rate:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {placement.stats.openRate}%
+                              </span>
+                            </span>
+                          )}
+                          {placement.stats.totalOpens != null && (
+                            <span className="text-xs text-gray-500">
+                              Total Opens:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {placement.stats.totalOpens.toLocaleString()}
+                              </span>
+                            </span>
+                          )}
+                          {placement.stats.uniqueOpens != null && (
+                            <span className="text-xs text-gray-500">
+                              Unique Opens:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {placement.stats.uniqueOpens.toLocaleString()}
+                              </span>
+                            </span>
+                          )}
+                          {placement.stats.uniqueClicks != null && (
+                            <span className="text-xs text-gray-500">
+                              Clicks:{" "}
+                              <span className="font-semibold text-gray-900">
+                                {placement.stats.uniqueClicks.toLocaleString()}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Cost + Invoice row */}
+                      {(() => {
+                        const cost = getPlacementCost(placement);
+                        const links = invoiceLinksByPlacement[placement.id] ?? [];
+                        const invoiceTotal = links.reduce(
+                          (sum, l) => sum + (l.invoice?.total ?? 0),
+                          0
+                        );
+                        const showRow = cost != null || links.length > 0 || xeroConnected;
+                        if (!showRow) return null;
+                        return (
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                            {cost != null && (
+                              <span className="text-gray-500">
+                                Cost:{" "}
+                                <span className="font-semibold text-gray-900">
+                                  {formatCurrency(cost)}
+                                </span>
+                              </span>
+                            )}
+                            {links.length > 0 && (
+                              <span className="text-gray-500">
+                                {links.length} invoice{links.length !== 1 ? "s" : ""} —{" "}
+                                <span className="font-semibold text-gray-900">
+                                  {formatCurrency(invoiceTotal)}
+                                </span>
+                              </span>
+                            )}
+                            {links.map((link) => (
+                              <span
+                                key={link.id}
+                                className="inline-flex items-center gap-1"
+                              >
+                                <span className="font-medium text-gray-700">
+                                  {link.invoice?.invoiceNumber ||
+                                    link.xeroInvoiceId.slice(0, 8)}
+                                </span>
+                                {link.invoice && (
+                                  <InvoiceStatusBadge status={link.invoice.status} />
+                                )}
+                                <button
+                                  onClick={() => handleUnlinkInvoice(link.id)}
+                                  disabled={unlinkingInvoiceId === link.id}
+                                  className="text-red-400 hover:text-red-600 disabled:opacity-50"
+                                >
+                                  {unlinkingInvoiceId === link.id ? "..." : "×"}
+                                </button>
+                              </span>
+                            ))}
+                            {xeroConnected && (
+                              <button
+                                onClick={() =>
+                                  setInvoiceModalPlacementId(placement.id)
+                                }
+                                className="font-medium text-blue-600 hover:text-blue-700"
+                              >
+                                + Link Invoice
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {isExpanded && (
+                      <div className="border-t border-gray-200 px-5 py-4">
+                        <CopyEditor
+                          value={getEditedCopy(placement)}
+                          onChange={(val) => handleCopyChange(placement.id, val)}
+                        />
+
+                        {editedCopy[placement.id] !== undefined &&
+                          editedCopy[placement.id] !== placement.currentCopy && (
+                            <div className="mt-3 flex items-center gap-3">
+                              <button
+                                onClick={() => handleSaveCopy(placement.id)}
+                                disabled={savingCopyId === placement.id}
+                                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                              >
+                                {savingCopyId === placement.id
+                                  ? "Saving..."
+                                  : "Save Copy"}
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setEditedCopy((prev) => {
+                                    const next = { ...prev };
+                                    delete next[placement.id];
+                                    return next;
+                                  })
+                                }
+                                className="text-sm text-gray-500 hover:text-gray-700"
+                              >
+                                Discard changes
+                              </button>
+                            </div>
+                          )}
+
+                        {(placement.status === "Copywriting in Progress" ||
+                          placement.status === "New Campaign" ||
+                          placement.status === "Drafting Script" ||
+                          placement.status === "Drafting Questions" ||
+                          placement.status === "Revising for Client") && (
+                          <div className="mt-3">
+                            <button
+                              onClick={() => handlePeakTeamApproved(placement)}
+                              disabled={
+                                savingCopyId === placement.id ||
+                                updatingId === placement.id
+                              }
+                              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {savingCopyId === placement.id ||
+                              updatingId === placement.id
+                                ? "Updating..."
+                                : "The Peak Team Has Approved"}
+                            </button>
+                          </div>
+                        )}
+
+                        {placement.revisionNotes && (
+                          <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3">
+                            <p className="text-xs font-medium text-amber-700">
+                              Revision Notes
+                            </p>
+                            <p className="mt-1 text-sm text-amber-800">
+                              {placement.revisionNotes}
+                            </p>
+                          </div>
+                        )}
+
                       </div>
                     )}
-
-                  {(placement.status === "Copywriting in Progress" ||
-                    placement.status === "New Campaign" ||
-                    placement.status === "Drafting Script" ||
-                    placement.status === "Drafting Questions" ||
-                    placement.status === "Revising for Client") && (
-                    <div className="mt-3">
-                      <button
-                        onClick={() => handlePeakTeamApproved(placement)}
-                        disabled={
-                          savingCopyId === placement.id ||
-                          updatingId === placement.id
-                        }
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {savingCopyId === placement.id ||
-                        updatingId === placement.id
-                          ? "Updating..."
-                          : "The Peak Team Has Approved"}
-                      </button>
-                    </div>
-                  )}
-
-                  {placement.revisionNotes && (
-                    <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3">
-                      <p className="text-xs font-medium text-amber-700">
-                        Revision Notes
-                      </p>
-                      <p className="mt-1 text-sm text-amber-800">
-                        {placement.revisionNotes}
-                      </p>
-                    </div>
-                  )}
-
-                </div>
-              )}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
       {invoiceModalPlacementId && (
