@@ -24,6 +24,58 @@ function genId(prefix: string): string {
   return `${prefix}-${nanoid()}`;
 }
 
+const BILLING_META_START = "<!-- billing-meta:start -->";
+const BILLING_META_END = "<!-- billing-meta:end -->";
+
+interface BillingPortalMeta {
+  representingClient?: boolean;
+  wantsPeakCopy?: boolean;
+  salesPerson?: string;
+}
+
+function extractBillingPortalMeta(notes?: string | null): {
+  cleanNotes: string | null;
+  meta: BillingPortalMeta;
+} {
+  if (!notes) return { cleanNotes: null, meta: {} };
+
+  const start = notes.indexOf(BILLING_META_START);
+  const end = notes.indexOf(BILLING_META_END);
+  if (start === -1 || end === -1 || end < start) {
+    return { cleanNotes: notes.trim() || null, meta: {} };
+  }
+
+  const before = notes.slice(0, start).trim();
+  const after = notes.slice(end + BILLING_META_END.length).trim();
+  const rawMeta = notes
+    .slice(start + BILLING_META_START.length, end)
+    .trim();
+
+  let meta: BillingPortalMeta = {};
+  try {
+    meta = JSON.parse(rawMeta) as BillingPortalMeta;
+  } catch {
+    meta = {};
+  }
+
+  const cleanNotes = [before, after].filter(Boolean).join("\n\n").trim() || null;
+  return { cleanNotes, meta };
+}
+
+function attachBillingPortalMeta(
+  cleanNotes: string | null,
+  meta: BillingPortalMeta
+): string {
+  const hasMeta = Object.values(meta).some(
+    (value) => value !== undefined && value !== null && value !== ""
+  );
+  if (!hasMeta) return cleanNotes ?? "";
+
+  const block = `${BILLING_META_START}\n${JSON.stringify(meta)}\n${BILLING_META_END}`;
+  if (!cleanNotes) return block;
+  return `${cleanNotes}\n\n${block}`;
+}
+
 // ─── Mutations ───────────────────────────────────────────────
 
 export async function updatePlacementStatus(
@@ -178,6 +230,7 @@ export function createOnboardingRound(
 export function createCampaign(data: {
   clientName: string;
   name: string;
+  salesPerson?: string;
   campaignManager?: string;
   contactName?: string;
   contactEmail?: string;
@@ -190,6 +243,10 @@ export function createCampaign(data: {
     const now = new Date();
 
     // Insert campaign
+    const notesWithMeta = attachBillingPortalMeta(data.notes ?? null, {
+      salesPerson: data.salesPerson,
+    });
+
     await db.insert(schema.campaigns).values({
       id: campaignId,
       name: data.name,
@@ -199,7 +256,7 @@ export function createCampaign(data: {
       contactName: data.contactName ?? null,
       contactEmail: data.contactEmail ?? null,
       adLineItems: data.adLineItems ?? null,
-      notes: data.notes ?? null,
+      notes: notesWithMeta || null,
       createdAt: now,
     });
 
@@ -220,7 +277,7 @@ export function createCampaign(data: {
         for (let i = 0; i < lineItem.quantity; i++) {
           await addPlacement(campaignId, {
             type: lineItem.type,
-            publication: "The Peak",
+            publication: lineItem.publication ?? "The Peak",
             status: "New Campaign",
             onboardingRoundId: firstRound?.id,
           });
@@ -303,6 +360,136 @@ export function markBillingOnboardingComplete(
 
     return true;
   })();
+}
+
+export async function saveBillingOnboardingForm(
+  campaignId: string,
+  data: {
+    primaryContactName?: string;
+    primaryContactEmail?: string;
+    representingClient?: boolean;
+    wantsPeakCopy?: boolean;
+    companyName?: string;
+    billingAddress?: string;
+    billingContactName?: string;
+    billingContactEmail?: string;
+    specificInvoicingInstructions?: string;
+  }
+): Promise<boolean> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  if (!campaign) return false;
+
+  const billing = await db.query.billingOnboarding.findFirst({
+    where: eq(schema.billingOnboarding.campaignId, campaignId),
+  });
+  if (!billing) return false;
+
+  const extracted = extractBillingPortalMeta(campaign.notes);
+  const notesWithMeta = attachBillingPortalMeta(extracted.cleanNotes, {
+    ...extracted.meta,
+    representingClient: data.representingClient,
+    wantsPeakCopy: data.wantsPeakCopy,
+  });
+
+  await db
+    .update(schema.campaigns)
+    .set({
+      contactName: data.primaryContactName ?? null,
+      contactEmail: data.primaryContactEmail ?? null,
+      notes: notesWithMeta || null,
+    })
+    .where(eq(schema.campaigns.id, campaignId));
+
+  if (data.wantsPeakCopy !== undefined) {
+    await db
+      .update(schema.placements)
+      .set({ copyProducer: data.wantsPeakCopy ? "Us" : "Client" })
+      .where(eq(schema.placements.campaignId, campaignId));
+  }
+
+  await db
+    .update(schema.billingOnboarding)
+    .set({
+      poNumber: data.companyName ?? null,
+      billingAddress: data.billingAddress ?? null,
+      billingContactName: data.billingContactName ?? null,
+      billingContactEmail: data.billingContactEmail ?? null,
+      specialInstructions: data.specificInvoicingInstructions ?? null,
+    })
+    .where(eq(schema.billingOnboarding.id, billing.id));
+
+  return true;
+}
+
+export async function submitBillingOnboardingForm(
+  campaignId: string,
+  data: {
+    primaryContactName: string;
+    primaryContactEmail: string;
+    representingClient: boolean;
+    wantsPeakCopy: boolean;
+    companyName: string;
+    billingAddress: string;
+    billingContactName: string;
+    billingContactEmail: string;
+    specificInvoicingInstructions?: string;
+  }
+): Promise<boolean> {
+  const saved = await saveBillingOnboardingForm(campaignId, data);
+  if (!saved) return false;
+
+  const billing = await db.query.billingOnboarding.findFirst({
+    where: eq(schema.billingOnboarding.campaignId, campaignId),
+  });
+  if (!billing) return false;
+
+  await db
+    .update(schema.billingOnboarding)
+    .set({
+      complete: true,
+      completedAt: new Date(),
+    })
+    .where(eq(schema.billingOnboarding.id, billing.id));
+
+  return true;
+}
+
+export async function updateBillingOnboardingByAdmin(
+  campaignId: string,
+  data: {
+    poNumber?: string;
+    billingAddress?: string;
+    billingContactName?: string;
+    billingContactEmail?: string;
+    invoiceCadence?: InvoiceCadence;
+    specialInstructions?: string;
+  }
+): Promise<boolean> {
+  const billing = await db.query.billingOnboarding.findFirst({
+    where: eq(schema.billingOnboarding.campaignId, campaignId),
+  });
+  if (!billing) return false;
+
+  const normalize = (value?: string) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  };
+
+  await db
+    .update(schema.billingOnboarding)
+    .set({
+      poNumber: normalize(data.poNumber),
+      billingAddress: normalize(data.billingAddress),
+      billingContactName: normalize(data.billingContactName),
+      billingContactEmail: normalize(data.billingContactEmail),
+      invoiceCadence: data.invoiceCadence ?? null,
+      specialInstructions: normalize(data.specialInstructions),
+    })
+    .where(eq(schema.billingOnboarding.id, billing.id));
+
+  return true;
 }
 
 export function updateAdLineItems(
@@ -416,15 +603,61 @@ export async function updateCampaignMetadata(
   data: {
     name?: string;
     status?: CampaignStatus;
+    clientName?: string | null;
+    salesPerson?: string | null;
     campaignManager?: string | null;
     contactName?: string | null;
     contactEmail?: string | null;
     notes?: string | null;
   }
 ): Promise<boolean> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  if (!campaign) return false;
+
+  const extracted = extractBillingPortalMeta(campaign.notes);
+  const nextMeta: BillingPortalMeta = {
+    ...extracted.meta,
+    salesPerson:
+      data.salesPerson !== undefined
+        ? data.salesPerson ?? undefined
+        : extracted.meta.salesPerson,
+  };
+
+  const nextNotes =
+    data.notes !== undefined ? data.notes : extracted.cleanNotes;
+
+  const updatePayload: Record<string, unknown> = {
+    notes: attachBillingPortalMeta(nextNotes ?? null, nextMeta) || null,
+  };
+
+  if (data.name !== undefined) updatePayload.name = data.name;
+  if (data.status !== undefined) updatePayload.status = data.status;
+  if (data.campaignManager !== undefined) {
+    updatePayload.campaignManager = data.campaignManager;
+  }
+  if (data.contactName !== undefined) {
+    updatePayload.contactName = data.contactName;
+  }
+  if (data.contactEmail !== undefined) {
+    updatePayload.contactEmail = data.contactEmail;
+  }
+
+  if (data.clientName !== undefined) {
+    const nextClientName = data.clientName?.trim() ?? "";
+    if (nextClientName.length > 0) {
+      // Rename the existing client rather than creating a new one
+      await db
+        .update(schema.clients)
+        .set({ name: nextClientName })
+        .where(eq(schema.clients.id, campaign.clientId));
+    }
+  }
+
   const result = await db
     .update(schema.campaigns)
-    .set(data)
+    .set(updatePayload)
     .where(eq(schema.campaigns.id, campaignId));
   return (result.rowCount ?? 0) > 0;
 }
@@ -711,7 +944,10 @@ export async function submitOnboardingForm(
   for (const { placementId } of data.placementBriefs) {
     await db
       .update(schema.placements)
-      .set({ onboardingRoundId: roundId })
+      .set({
+        onboardingRoundId: roundId,
+        status: "Copywriting in Progress",
+      })
       .where(
         and(
           eq(schema.placements.id, placementId),
