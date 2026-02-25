@@ -647,11 +647,8 @@ export async function updateCampaignMetadata(
   if (data.clientName !== undefined) {
     const nextClientName = data.clientName?.trim() ?? "";
     if (nextClientName.length > 0) {
-      // Rename the existing client rather than creating a new one
-      await db
-        .update(schema.clients)
-        .set({ name: nextClientName })
-        .where(eq(schema.clients.id, campaign.clientId));
+      const nextClient = await findOrCreateClient(nextClientName);
+      updatePayload.clientId = nextClient.id;
     }
   }
 
