@@ -14,20 +14,25 @@ export type CampaignStatus =
   | "Placements Completed"
   | "Wrapped";
 
-// === Simplified status for client-facing portal display ===
+// === Client-facing placement statuses ===
 export type ClientDisplayStatus =
-  | "In Progress"
-  | "Ready for Review"
+  | "New Campaign"
+  | "Copywriting in Progress"
+  | "Peak Team Review Complete"
+  | "Sent for Approval"
   | "Approved";
 
 export function getClientDisplayStatus(status: PlacementStatus): ClientDisplayStatus {
   switch (status) {
+    case "New Campaign":
+      return "New Campaign";
+    case "Copywriting in Progress":
+    case "Peak Team Review Complete":
     case "Sent for Approval":
-      return "Ready for Review";
     case "Approved":
-      return "Approved";
+      return status;
     default:
-      return "In Progress";
+      return "Copywriting in Progress";
   }
 }
 
@@ -133,6 +138,7 @@ export interface Placement {
 export interface AdLineItem {
   quantity: number;
   type: PlacementType;
+  publication?: Publication;
   pricePerUnit: number;
 }
 
@@ -163,6 +169,7 @@ export interface BillingOnboarding {
   filloutLink: string;
   complete: boolean;
   completedAt?: string;
+  companyName?: string;
   billingContactName?: string;
   billingContactEmail?: string;
   billingAddress?: string;
@@ -177,6 +184,7 @@ export interface Campaign {
   name: string;                       // "Campaign Name"
   clientId: string;
   status: CampaignStatus;
+  salesPerson?: string;
   campaignManager?: string;
   contactName?: string;
   contactEmail?: string;
