@@ -342,10 +342,10 @@ export function AdminPlacementList({
               key={placement.id}
               className="rounded-lg border border-gray-200 bg-white"
             >
-              <div className="px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3">
+              <div className="px-5 py-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <Link
                         href={`/dashboard/${campaignId}/${placement.id}`}
                         className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
@@ -358,7 +358,7 @@ export function AdminPlacementList({
                         onChange={(e) =>
                           handleStatusChange(placement.id, e.target.value)
                         }
-                        className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 disabled:opacity-50"
+                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
                       >
                         {getPlacementStatusesFor(
                           placement.type,
@@ -385,23 +385,29 @@ export function AdminPlacementList({
                             handleStatusChange(placement.id, nextStatus);
                           }}
                           disabled={updatingId === placement.id}
-                          className="rounded-lg bg-green-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                          className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
                         >
                           Mark Approved
                         </button>
                       )}
                     </div>
-                    <div className="mt-1 flex gap-4 text-sm text-gray-500">
-                      <span>{placement.type}</span>
-                      <span>{placement.publication}</span>
-                      <span>v{placement.copyVersion}</span>
+                    <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                      <span className="rounded bg-gray-100 px-2 py-1">
+                        {placement.type}
+                      </span>
+                      <span className="rounded bg-gray-100 px-2 py-1">
+                        {placement.publication}
+                      </span>
+                      <span className="rounded bg-gray-100 px-2 py-1">
+                        v{placement.copyVersion}
+                      </span>
                       {placement.scheduledDate && placement.scheduledEndDate && (
-                        <span>
+                        <span className="rounded bg-gray-100 px-2 py-1">
                           {placement.scheduledDate} - {placement.scheduledEndDate}
                         </span>
                       )}
                       {isPodcastInterviewType(placement.type) && (
-                        <span>
+                        <span className="rounded bg-gray-100 px-2 py-1">
                           Interview:{" "}
                           {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
                         </span>
@@ -409,11 +415,11 @@ export function AdminPlacementList({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
+                  <div className="w-full space-y-2 xl:w-auto xl:min-w-[26rem]">
+                    <div className="flex flex-wrap items-center gap-2">
                       <label
                         htmlFor={`date-${placement.id}`}
-                        className="text-sm text-gray-500"
+                        className="text-sm text-gray-500 xl:w-12"
                       >
                         {placement.publication === PODCAST_PUBLICATION
                           ? "Start:"
@@ -427,7 +433,7 @@ export function AdminPlacementList({
                         onChange={(e) =>
                           handleDateChange(placement.id, e.target.value)
                         }
-                        className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                        className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
                       />
                       {placement.publication === PODCAST_PUBLICATION && (
                         <>
@@ -439,7 +445,7 @@ export function AdminPlacementList({
                             onChange={(e) =>
                               handleEndDateChange(placement.id, e.target.value)
                             }
-                            className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                            className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
                           />
                         </>
                       )}
@@ -460,14 +466,16 @@ export function AdminPlacementList({
                         </label>
                       )}
                     </div>
-                    <button
-                      onClick={() =>
-                        setExpandedId(isExpanded ? null : placement.id)
-                      }
-                      className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      {isExpanded ? "Hide Copy" : "Edit Copy"}
-                    </button>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() =>
+                          setExpandedId(isExpanded ? null : placement.id)
+                        }
+                        className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        {isExpanded ? "Hide Copy" : "Edit Copy"}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
