@@ -16,8 +16,14 @@ import type {
   PerformanceStats,
   CampaignContact,
 } from "../types";
-import { DAILY_CAPACITY_LIMITS } from "../types";
+import {
+  DAILY_CAPACITY_LIMITS,
+  getDefaultPlacementStatus,
+  isPodcastInterviewType,
+  isPodcastPublication,
+} from "../types";
 import { getCampaignById, getPlacement } from "./queries";
+import { attachPlacementMeta, extractPlacementMeta } from "../placement-meta";
 
 const nanoid = customAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 10);
 
@@ -104,11 +110,26 @@ export async function savePlacementRevisionNotes(
   placementId: string,
   notes: string
 ): Promise<boolean> {
+  const placement = await getPlacement(campaignId, placementId);
+  if (!placement) return false;
+
+  const nextStatus: PlacementStatus =
+    placement.status === "Client Reviewing Interview"
+      ? "Revising for Client"
+      : placement.status === "Audio Sent for Approval" ||
+          placement.status === "Audio Sent"
+        ? "Audio Sent"
+      : placement.status === "Script Review by Client"
+        ? "Drafting Script"
+        : placement.status === "Questions In Review"
+          ? "Drafting Questions"
+          : "Copywriting in Progress";
+
   const result = await db
     .update(schema.placements)
     .set({
       revisionNotes: notes,
-      status: "Copywriting in Progress",
+      status: nextStatus,
     })
     .where(
       and(
@@ -289,7 +310,10 @@ export function createCampaign(data: {
           await addPlacement(campaignId, {
             type: lineItem.type,
             publication: lineItem.publication ?? "The Peak",
-            status: "New Campaign",
+            status: getDefaultPlacementStatus(
+              lineItem.type,
+              lineItem.publication ?? "The Peak"
+            ),
             onboardingRoundId: firstRound?.id,
           });
         }
@@ -522,6 +546,8 @@ export function addPlacement(
     type: PlacementType;
     publication: Publication;
     scheduledDate?: string;
+    scheduledEndDate?: string;
+    interviewScheduled?: boolean;
     copyProducer?: "Us" | "Client";
     status: PlacementStatus;
     notes?: string;
@@ -536,6 +562,10 @@ export function addPlacement(
 
     const id = genId("placement");
     const now = new Date();
+    const notesWithMeta = attachPlacementMeta(data.notes ?? null, {
+      scheduledEndDate: data.scheduledEndDate,
+      interviewScheduled: data.interviewScheduled,
+    });
 
     await db.insert(schema.placements).values({
       id,
@@ -547,7 +577,7 @@ export function addPlacement(
       status: data.status,
       onboardingRoundId: data.onboardingRoundId ?? null,
       copyProducer: data.copyProducer ?? null,
-      notes: data.notes ?? null,
+      notes: notesWithMeta || null,
       currentCopy: "",
       copyVersion: 0,
       createdAt: now,
@@ -559,6 +589,8 @@ export function addPlacement(
       type: data.type,
       publication: data.publication,
       scheduledDate: data.scheduledDate,
+      scheduledEndDate: data.scheduledEndDate,
+      interviewScheduled: data.interviewScheduled,
       status: data.status,
       onboardingRoundId: data.onboardingRoundId,
       copyProducer: data.copyProducer,
@@ -693,6 +725,8 @@ export async function updatePlacementMetadata(
     type?: PlacementType;
     publication?: Publication;
     scheduledDate?: string | null;
+    scheduledEndDate?: string | null;
+    interviewScheduled?: boolean | null;
     status?: PlacementStatus;
     copyProducer?: "Us" | "Client" | null;
     notes?: string | null;
@@ -702,9 +736,47 @@ export async function updatePlacementMetadata(
     logoUrl?: string | null;
   }
 ): Promise<boolean> {
+  const placementRow = await db.query.placements.findFirst({
+    where: and(
+      eq(schema.placements.id, placementId),
+      eq(schema.placements.campaignId, campaignId)
+    ),
+  });
+  if (!placementRow) return false;
+
+  const extracted = extractPlacementMeta(placementRow.notes);
+  const nextMeta = {
+    scheduledEndDate:
+      data.scheduledEndDate !== undefined
+        ? data.scheduledEndDate ?? undefined
+        : extracted.meta.scheduledEndDate,
+    interviewScheduled:
+      data.interviewScheduled !== undefined
+        ? data.interviewScheduled ?? undefined
+        : extracted.meta.interviewScheduled,
+  };
+  const nextCleanNotes =
+    data.notes !== undefined ? data.notes : extracted.cleanNotes;
+
+  const updatePayload: Record<string, unknown> = {
+    notes: attachPlacementMeta(nextCleanNotes ?? null, nextMeta) || null,
+  };
+  if (data.name !== undefined) updatePayload.name = data.name;
+  if (data.type !== undefined) updatePayload.type = data.type;
+  if (data.publication !== undefined) updatePayload.publication = data.publication;
+  if (data.scheduledDate !== undefined) updatePayload.scheduledDate = data.scheduledDate;
+  if (data.status !== undefined) updatePayload.status = data.status;
+  if (data.copyProducer !== undefined) updatePayload.copyProducer = data.copyProducer;
+  if (data.linkToPlacement !== undefined) updatePayload.linkToPlacement = data.linkToPlacement;
+  if (data.conflictPreference !== undefined) {
+    updatePayload.conflictPreference = data.conflictPreference;
+  }
+  if (data.imageUrl !== undefined) updatePayload.imageUrl = data.imageUrl;
+  if (data.logoUrl !== undefined) updatePayload.logoUrl = data.logoUrl;
+
   const result = await db
     .update(schema.placements)
-    .set(data)
+    .set(updatePayload)
     .where(
       and(
         eq(schema.placements.id, placementId),
@@ -965,11 +1037,18 @@ export async function submitOnboardingForm(
 
   // Assign any unassigned placements to this round
   for (const { placementId } of data.placementBriefs) {
+    const placement = await getPlacement(campaignId, placementId);
+    const nextStatus =
+      placement && isPodcastPublication(placement.publication)
+        ? isPodcastInterviewType(placement.type)
+          ? "Drafting Questions"
+          : "Drafting Script"
+        : "Copywriting in Progress";
     await db
       .update(schema.placements)
       .set({
         onboardingRoundId: roundId,
-        status: "Copywriting in Progress",
+        status: nextStatus,
       })
       .where(
         and(

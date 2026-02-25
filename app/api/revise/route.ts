@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
 
   if (
     placement.status !== "Sent for Approval" &&
-    placement.status !== "Peak Team Review Complete"
+    placement.status !== "Peak Team Review Complete" &&
+    placement.status !== "Script Review by Client" &&
+    placement.status !== "Audio Sent for Approval" &&
+    placement.status !== "Audio Sent" &&
+    placement.status !== "Questions In Review" &&
+    placement.status !== "Client Reviewing Interview"
   ) {
     return NextResponse.json(
       { error: "Placement is not available for revisions" },

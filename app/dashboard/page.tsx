@@ -11,6 +11,7 @@ import {
   parseDismissedTaskIds,
 } from "@/lib/dashboard-task-dismissals";
 import { buildDashboardTasks } from "@/lib/dashboard-tasks";
+import { isClientReviewStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function DashboardPage() {
     (sum, row) =>
       sum +
       row.campaign.placements.filter(
-        (placement) => placement.status === "Peak Team Review Complete"
+        (placement) => isClientReviewStatus(placement.status)
       ).length,
     0
   );

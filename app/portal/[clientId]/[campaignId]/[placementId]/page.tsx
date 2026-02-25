@@ -64,7 +64,11 @@ export default async function PlacementPage({ params }: PageProps) {
           {" · "}
           {placement.publication}
           {placement.scheduledDate &&
-            ` · Scheduled ${new Date(placement.scheduledDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+            ` · Scheduled ${new Date(placement.scheduledDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}${
+              placement.scheduledEndDate && placement.scheduledEndDate > placement.scheduledDate
+                ? ` - ${new Date(placement.scheduledEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                : ""
+            }`}
           {placement.copyVersion > 1 && ` · Version ${placement.copyVersion}`}
         </p>
       </div>

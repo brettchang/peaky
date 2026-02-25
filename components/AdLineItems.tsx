@@ -2,17 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AdLineItem, PlacementType, Placement, Publication } from "@/lib/types";
+import {
+  AdLineItem,
+  PlacementType,
+  Placement,
+  Publication,
+  PUBLICATIONS,
+} from "@/lib/types";
 
 const AD_UNIT_OPTIONS: Array<{ value: PlacementType; label: string }> = [
   { value: "Primary", label: "Primary (150 words + image + logo)" },
   { value: "Secondary", label: "Secondary (75 words)" },
   { value: "Peak Picks", label: "Peak Picks (10-15 words)" },
-];
-
-const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
-  { value: "The Peak", label: "The Peak Daily Newsletter" },
-  { value: "Peak Money", label: "Peak Money" },
+  { value: ":30 Pre-Roll", label: "Podcast :30 Pre-Roll" },
+  { value: ":30 Mid-Roll", label: "Podcast :30 Mid-Roll" },
+  { value: "15 Minute Interview", label: "Podcast 15 Minute Interview" },
 ];
 
 interface AdLineItemsProps {

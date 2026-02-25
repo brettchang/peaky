@@ -1,27 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { OnboardingRound } from "@/lib/types";
+import {
+  OnboardingRound,
+  PlacementStatus,
+  PlacementType,
+  Publication,
+  PODCAST_PLACEMENT_TYPES,
+  PODCAST_PUBLICATION,
+  getDefaultPlacementStatus,
+  getPlacementStatusesFor,
+  isPodcastInterviewType,
+} from "@/lib/types";
 
-const PLACEMENT_TYPES = [
-  "Primary",
-  "Secondary",
-  "Peak Picks",
-] as const;
+const TYPE_OPTIONS: Array<{ value: PlacementType; label: string }> = [
+  { value: "Primary", label: "Primary" },
+  { value: "Secondary", label: "Secondary" },
+  { value: "Peak Picks", label: "Peak Picks" },
+  { value: ":30 Pre-Roll", label: ":30 Pre-Roll" },
+  { value: ":30 Mid-Roll", label: ":30 Mid-Roll" },
+  { value: "15 Minute Interview", label: "15 Minute Interview" },
+];
 
-const PUBLICATIONS = [
+const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
   { value: "The Peak", label: "The Peak Daily Newsletter" },
   { value: "Peak Money", label: "Peak Money" },
-] as const;
-
-const STATUSES = [
-  "New Campaign",
-  "Copywriting in Progress",
-  "Peak Team Review Complete",
-  "Sent for Approval",
-  "Approved",
-] as const;
+  { value: PODCAST_PUBLICATION, label: "Peak Daily Podcast" },
+];
 
 interface AddPlacementFormProps {
   campaignId: string;
@@ -33,6 +39,35 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [type, setType] = useState<PlacementType>("Primary");
+  const [publication, setPublication] = useState<Publication>("The Peak");
+  const [status, setStatus] = useState<PlacementStatus>("New Campaign");
+
+  const statusOptions = useMemo(
+    () => getPlacementStatusesFor(type, publication),
+    [type, publication]
+  );
+
+  function handleTypeChange(nextType: PlacementType) {
+    setType(nextType);
+    if (PODCAST_PLACEMENT_TYPES.includes(nextType)) {
+      setPublication(PODCAST_PUBLICATION);
+      setStatus(getDefaultPlacementStatus(nextType, PODCAST_PUBLICATION));
+      return;
+    }
+    setStatus(getDefaultPlacementStatus(nextType, publication));
+  }
+
+  function handlePublicationChange(nextPublication: Publication) {
+    setPublication(nextPublication);
+    const nextType =
+      nextPublication === PODCAST_PUBLICATION && !PODCAST_PLACEMENT_TYPES.includes(type)
+        ? ":30 Pre-Roll"
+        : type;
+    if (nextType !== type) setType(nextType);
+    setStatus(getDefaultPlacementStatus(nextType, nextPublication));
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -47,11 +82,14 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         campaignId,
-        type: formData.get("type"),
-        publication: formData.get("publication"),
+        type,
+        publication,
         scheduledDate: formData.get("scheduledDate") || undefined,
+        scheduledEndDate: formData.get("scheduledEndDate") || undefined,
+        interviewScheduled:
+          formData.get("interviewScheduled") === "on" ? true : undefined,
         copyProducer: formData.get("copyProducer"),
-        status: formData.get("status"),
+        status,
         notes: formData.get("notes") || undefined,
         onboardingRoundId: formData.get("onboardingRoundId") || undefined,
       }),
@@ -69,6 +107,9 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
     router.refresh();
   }
 
+  const isPodcastPlacement = publication === PODCAST_PUBLICATION;
+  const isInterview = isPodcastInterviewType(type);
+
   return (
     <>
       <button
@@ -82,9 +123,7 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Add Placement
-              </h2>
+              <h2 className="text-lg font-semibold text-gray-900">Add Placement</h2>
               <button
                 onClick={() => setOpen(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -94,21 +133,20 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Two-column row */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Type <span className="text-red-500">*</span>
                   </label>
                   <select
-                    name="type"
+                    value={type}
+                    onChange={(e) => handleTypeChange(e.target.value as PlacementType)}
                     required
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                   >
-                    <option value="">Select type...</option>
-                    {PLACEMENT_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
+                    {TYPE_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
                       </option>
                     ))}
                   </select>
@@ -118,11 +156,13 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                     Publication <span className="text-red-500">*</span>
                   </label>
                   <select
-                    name="publication"
+                    value={publication}
+                    onChange={(e) =>
+                      handlePublicationChange(e.target.value as Publication)
+                    }
                     required
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                   >
-                    <option value="">Select publication...</option>
                     {PUBLICATIONS.map((p) => (
                       <option key={p.value} value={p.value}>
                         {p.label}
@@ -132,19 +172,42 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                 </div>
               </div>
 
-              {/* Scheduled date */}
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Scheduled Date
-                </label>
-                <input
-                  type="date"
-                  name="scheduledDate"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    {isPodcastPlacement ? "Scheduled Start" : "Scheduled Date"}
+                  </label>
+                  <input
+                    type="date"
+                    name="scheduledDate"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  />
+                </div>
+                {isPodcastPlacement && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      Scheduled End
+                    </label>
+                    <input
+                      type="date"
+                      name="scheduledEndDate"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Copy producer */}
+              {isInterview && (
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    name="interviewScheduled"
+                    className="text-gray-900 focus:ring-gray-500"
+                  />
+                  Interview Scheduled
+                </label>
+              )}
+
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Copy Producer <span className="text-red-500">*</span>
@@ -156,6 +219,7 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                       name="copyProducer"
                       value="Us"
                       required
+                      defaultChecked
                       className="text-gray-900 focus:ring-gray-500"
                     />
                     Us
@@ -172,18 +236,17 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                 </div>
               </div>
 
-              {/* Status */}
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Status <span className="text-red-500">*</span>
                 </label>
                 <select
-                  name="status"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as PlacementStatus)}
                   required
-                  defaultValue="New Campaign"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                 >
-                  {STATUSES.map((s) => (
+                  {statusOptions.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -191,7 +254,6 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                 </select>
               </div>
 
-              {/* Onboarding Round */}
               {onboardingRounds && onboardingRounds.length > 0 && (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -204,14 +266,14 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                     <option value="">None</option>
                     {onboardingRounds.map((r) => (
                       <option key={r.id} value={r.id}>
-                        {r.label || r.id}{r.complete ? "" : " (pending)"}
+                        {r.label || r.id}
+                        {r.complete ? "" : " (pending)"}
                       </option>
                     ))}
                   </select>
                 </div>
               )}
 
-              {/* Notes */}
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Notes
@@ -223,9 +285,7 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                 />
               </div>
 
-              {error && (
-                <p className="text-sm text-red-600">{error}</p>
-              )}
+              {error && <p className="text-sm text-red-600">{error}</p>}
 
               <div className="flex justify-end gap-3 pt-2">
                 <button

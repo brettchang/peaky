@@ -26,6 +26,7 @@ import type {
 import { DAILY_CAPACITY_LIMITS } from "../types";
 import type { CampaignInvoiceLink, PlacementInvoiceLink } from "../xero-types";
 import { getXeroConnection, fetchXeroInvoice } from "../xero";
+import { extractPlacementMeta } from "../placement-meta";
 
 const BILLING_META_START = "<!-- billing-meta:start -->";
 const BILLING_META_END = "<!-- billing-meta:end -->";
@@ -124,12 +125,15 @@ function mapPlacement(
   row: typeof schema.placements.$inferSelect,
   revisionHistory: CopyVersion[]
 ): Placement {
+  const extracted = extractPlacementMeta(row.notes);
   return {
     id: row.id,
     name: row.name,
     type: row.type as PlacementType,
     publication: row.publication as Publication,
     scheduledDate: row.scheduledDate ?? undefined,
+    scheduledEndDate: extracted.meta.scheduledEndDate,
+    interviewScheduled: extracted.meta.interviewScheduled,
     status: row.status as PlacementStatus,
     currentCopy: row.currentCopy,
     copyVersion: row.copyVersion,
@@ -137,7 +141,7 @@ function mapPlacement(
     revisionHistory,
     onboardingRoundId: row.onboardingRoundId ?? undefined,
     copyProducer: (row.copyProducer as "Us" | "Client") ?? undefined,
-    notes: row.notes ?? undefined,
+    notes: extracted.cleanNotes ?? undefined,
     onboardingBrief: row.onboardingBrief ?? undefined,
     stats: (row.stats as PerformanceStats) ?? undefined,
     imageUrl: row.imageUrl ?? undefined,
@@ -156,7 +160,16 @@ function canClientViewCopy(status: PlacementStatus): boolean {
   return (
     status === "Peak Team Review Complete" ||
     status === "Sent for Approval" ||
-    status === "Approved"
+    status === "Approved" ||
+    status === "Script Review by Client" ||
+    status === "Approved Script" ||
+    status === "Audio Sent for Approval" ||
+    status === "Audio Sent" ||
+    status === "Audio Approved" ||
+    status === "Questions In Review" ||
+    status === "Client Reviewing Interview" ||
+    status === "Revising for Client" ||
+    status === "Approved Interview"
   );
 }
 
@@ -635,7 +648,7 @@ export async function getCapacityForDateRange(
     typeMap.set(row.type, (typeMap.get(row.type) ?? 0) + 1);
   }
 
-  const publications: Publication[] = ["The Peak", "Peak Money"];
+  const publications: Publication[] = ["The Peak", "Peak Money", "Peak Daily Podcast"];
   const cappedTypes = (Object.entries(DAILY_CAPACITY_LIMITS) as [PlacementType, number | null][])
     .filter(([, limit]) => limit !== null) as [PlacementType, number][];
 

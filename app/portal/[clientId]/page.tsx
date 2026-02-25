@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCampaignsForClient } from "@/lib/db";
 import { PlacementDashboard } from "@/components/PlacementDashboard";
+import { isApprovedStatus, isClientReviewStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -119,19 +120,15 @@ export default async function PortalHomePage({ params }: PageProps) {
 
   const copyReviewActionRows = campaigns.flatMap((campaign) =>
     campaign.placements
-      .filter(
-        (placement) =>
-          placement.status === "Peak Team Review Complete" ||
-          placement.status === "Sent for Approval"
-      )
+      .filter((placement) => isClientReviewStatus(placement.status))
       .map((placement) => ({
         id: `copy-review-${placement.id}`,
         campaignId: campaign.id,
         campaignName: campaign.name,
-        title: `Copy Review · ${placement.type} (${placement.publication})`,
+        title: `Client Review · ${placement.type} (${placement.publication})`,
         description: placement.scheduledDate
-          ? `Scheduled ${formatDateLong(placement.scheduledDate)}. Please review and approve your copy.`
-          : "Please review and approve your copy.",
+          ? `Scheduled ${formatDateLong(placement.scheduledDate)}. Please review and approve this asset.`
+          : "Please review and approve this asset.",
         isUrgent: false,
         ctaLabel: "Review Copy",
         href: `/portal/${client.portalId}/${campaign.id}/${placement.id}`,
@@ -152,12 +149,10 @@ export default async function PortalHomePage({ params }: PageProps) {
 
   const placementCount = placements.length;
   const approvedCount = placements.filter(
-    (row) => row.placement.status === "Approved"
+    (row) => isApprovedStatus(row.placement.status)
   ).length;
   const reviewCount = placements.filter(
-    (row) =>
-      row.placement.status === "Peak Team Review Complete" ||
-      row.placement.status === "Sent for Approval"
+    (row) => isClientReviewStatus(row.placement.status)
   ).length;
   const pendingFormCount = formRows.filter(
     (row) => !row.complete && row.placementCount > 0

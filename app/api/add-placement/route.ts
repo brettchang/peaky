@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { addPlacement } from "@/lib/db";
+import { getDefaultPlacementStatus } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -9,6 +10,8 @@ export async function POST(request: NextRequest) {
     type,
     publication,
     scheduledDate,
+    scheduledEndDate,
+    interviewScheduled,
     copyProducer,
     status,
     notes,
@@ -26,8 +29,10 @@ export async function POST(request: NextRequest) {
     type,
     publication,
     scheduledDate: scheduledDate || undefined,
+    scheduledEndDate: scheduledEndDate || undefined,
+    interviewScheduled: interviewScheduled ?? undefined,
     copyProducer: copyProducer || undefined,
-    status: status || "New Campaign",
+    status: status || getDefaultPlacementStatus(type, publication),
     notes: notes || undefined,
     onboardingRoundId: onboardingRoundId || undefined,
   });

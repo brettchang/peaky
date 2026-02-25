@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getCampaignById, getClientByCampaignId, updatePlacementCopy, updatePlacementStatus, updateCampaignMetadata } from "@/lib/db";
 import { generateCopyForPlacements } from "@/lib/ai";
+import { isPodcastInterviewType, isPodcastPublication } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -48,7 +49,9 @@ export async function POST(request: NextRequest) {
     })
     .map((p) => ({
       id: p.id,
+      name: p.name,
       type: p.type,
+      publication: p.publication,
       brief: p.onboardingBrief || "",
       scheduledDate: p.scheduledDate,
     }));
@@ -70,8 +73,15 @@ export async function POST(request: NextRequest) {
 
   // Save generated copy to each placement
   for (const { placementId, copy } of results) {
+    const placement = campaign.placements.find((p) => p.id === placementId);
+    const nextStatus =
+      placement && isPodcastPublication(placement.publication)
+        ? isPodcastInterviewType(placement.type)
+          ? "Drafting Questions"
+          : "Drafting Script"
+        : "Copywriting in Progress";
     await updatePlacementCopy(campaignId, placementId, copy);
-    await updatePlacementStatus(campaignId, placementId, "Copywriting in Progress");
+    await updatePlacementStatus(campaignId, placementId, nextStatus);
   }
 
   // Check if all rounds are complete — if so, transition to Active

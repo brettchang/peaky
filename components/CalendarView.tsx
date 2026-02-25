@@ -10,6 +10,18 @@ const statusBarColor: Record<string, string> = {
   "Peak Team Review Complete": "bg-yellow-400",
   "Sent for Approval": "bg-blue-400",
   Approved: "bg-green-400",
+  "Onboarding Requested": "bg-slate-400",
+  "Drafting Script": "bg-amber-400",
+  "Script Review by Client": "bg-blue-400",
+  "Approved Script": "bg-emerald-400",
+  "Audio Sent for Approval": "bg-indigo-400",
+  "Audio Sent": "bg-indigo-400",
+  "Audio Approved": "bg-green-500",
+  "Drafting Questions": "bg-amber-400",
+  "Questions In Review": "bg-blue-400",
+  "Client Reviewing Interview": "bg-violet-400",
+  "Revising for Client": "bg-orange-400",
+  "Approved Interview": "bg-green-500",
 };
 
 function getBarColor(status: PlacementStatus): string {
@@ -23,6 +35,7 @@ interface CalendarPlacement {
   type: string;
   status: PlacementStatus;
   date: string; // YYYY-MM-DD
+  endDate?: string;
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -39,6 +52,17 @@ function formatMonth(date: Date): string {
 
 function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function getDatesInRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(start + "T00:00:00");
+  const last = new Date(end + "T00:00:00");
+  while (cursor <= last) {
+    dates.push(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
 }
 
 export function CalendarView({ data }: { data: DashboardCampaign[] }) {
@@ -64,6 +88,7 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
           type: p.type,
           status: p.status,
           date: p.scheduledDate,
+          endDate: p.scheduledEndDate,
         });
       }
     }
@@ -72,9 +97,12 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
   // Group by date
   const byDate = new Map<string, CalendarPlacement[]>();
   for (const p of placements) {
-    const key = p.date;
-    if (!byDate.has(key)) byDate.set(key, []);
-    byDate.get(key)!.push(p);
+    const endDate = p.endDate && p.endDate >= p.date ? p.endDate : p.date;
+    const placementDates = getDatesInRange(p.date, endDate);
+    for (const key of placementDates) {
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key)!.push(p);
+    }
   }
 
   // Build grid cells
@@ -190,6 +218,9 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
                         </div>
                         <div className="truncate text-[10px] text-gray-500">
                           {p.clientName}
+                          {p.endDate && p.endDate !== p.date
+                            ? ` · ${p.date.slice(5)}-${p.endDate.slice(5)}`
+                            : ""}
                         </div>
                       </div>
                     </Link>

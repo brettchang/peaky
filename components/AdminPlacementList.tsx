@@ -3,7 +3,15 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Placement, OnboardingRound, PlacementStatus, AdLineItem } from "@/lib/types";
+import {
+  Placement,
+  OnboardingRound,
+  AdLineItem,
+  PODCAST_PUBLICATION,
+  getPlacementStatusesFor,
+  isClientReviewStatus,
+  isPodcastInterviewType,
+} from "@/lib/types";
 import type { PlacementInvoiceLink } from "@/lib/xero-types";
 import { AddPlacementForm } from "@/components/AddPlacementForm";
 import { CopyEditor } from "@/components/CopyEditor";
@@ -116,7 +124,13 @@ export function AdminPlacementList({
         body: JSON.stringify({
           campaignId,
           placementId,
-          status: "Peak Team Review Complete",
+          status:
+            placement.status === "Drafting Script" ||
+            placement.status === "Revising for Client"
+              ? "Script Review by Client"
+              : placement.status === "Drafting Questions"
+                ? "Questions In Review"
+                : "Peak Team Review Complete",
         }),
       });
       if (statusRes.ok) {
@@ -147,7 +161,7 @@ export function AdminPlacementList({
   async function handleDateChange(placementId: string, value: string) {
     setUpdatingId(placementId);
     try {
-      const res = await fetch("/api/update-schedule", {
+      const res = await fetch("/api/update-placement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -157,7 +171,50 @@ export function AdminPlacementList({
         }),
       });
       if (res.ok) {
-        window.location.reload();
+        router.refresh();
+      }
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function handleEndDateChange(placementId: string, value: string) {
+    setUpdatingId(placementId);
+    try {
+      const res = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId,
+          scheduledEndDate: value || null,
+        }),
+      });
+      if (res.ok) {
+        router.refresh();
+      }
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function handleInterviewScheduledChange(
+    placementId: string,
+    interviewScheduled: boolean
+  ) {
+    setUpdatingId(placementId);
+    try {
+      const res = await fetch("/api/update-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          placementId,
+          interviewScheduled,
+        }),
+      });
+      if (res.ok) {
+        router.refresh();
       }
     } finally {
       setUpdatingId(null);
@@ -303,27 +360,34 @@ export function AdminPlacementList({
                         }
                         className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 disabled:opacity-50"
                       >
-                        {([
-                          "New Campaign",
-                          "Copywriting in Progress",
-                          "Peak Team Review Complete",
-                          "Sent for Approval",
-                          "Approved",
-                        ] as PlacementStatus[]).map((s) => (
+                        {getPlacementStatusesFor(
+                          placement.type,
+                          placement.publication
+                        ).map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
                         ))}
                       </select>
-                      {placement.status === "Sent for Approval" && (
+                      {isClientReviewStatus(placement.status) && (
                         <button
-                          onClick={() =>
-                            handleStatusChange(placement.id, "Approved")
-                          }
+                          onClick={() => {
+                            const nextStatus =
+                              placement.status === "Script Review by Client"
+                                ? "Approved Script"
+                                : placement.status === "Audio Sent for Approval" ||
+                                    placement.status === "Audio Sent"
+                                  ? "Audio Approved"
+                                  : placement.status === "Questions In Review" ||
+                                      placement.status === "Client Reviewing Interview"
+                                    ? "Approved Interview"
+                                    : "Approved";
+                            handleStatusChange(placement.id, nextStatus);
+                          }}
                           disabled={updatingId === placement.id}
                           className="rounded-lg bg-green-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
                         >
-                          Approve
+                          Mark Approved
                         </button>
                       )}
                     </div>
@@ -331,6 +395,17 @@ export function AdminPlacementList({
                       <span>{placement.type}</span>
                       <span>{placement.publication}</span>
                       <span>v{placement.copyVersion}</span>
+                      {placement.scheduledDate && placement.scheduledEndDate && (
+                        <span>
+                          {placement.scheduledDate} - {placement.scheduledEndDate}
+                        </span>
+                      )}
+                      {isPodcastInterviewType(placement.type) && (
+                        <span>
+                          Interview:{" "}
+                          {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -340,7 +415,9 @@ export function AdminPlacementList({
                         htmlFor={`date-${placement.id}`}
                         className="text-sm text-gray-500"
                       >
-                        Scheduled:
+                        {placement.publication === PODCAST_PUBLICATION
+                          ? "Start:"
+                          : "Scheduled:"}
                       </label>
                       <input
                         id={`date-${placement.id}`}
@@ -352,6 +429,36 @@ export function AdminPlacementList({
                         }
                         className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
                       />
+                      {placement.publication === PODCAST_PUBLICATION && (
+                        <>
+                          <label className="text-sm text-gray-500">End:</label>
+                          <input
+                            type="date"
+                            defaultValue={placement.scheduledEndDate ?? ""}
+                            disabled={updatingId === placement.id}
+                            onChange={(e) =>
+                              handleEndDateChange(placement.id, e.target.value)
+                            }
+                            className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                          />
+                        </>
+                      )}
+                      {isPodcastInterviewType(placement.type) && (
+                        <label className="flex items-center gap-1 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(placement.interviewScheduled)}
+                            disabled={updatingId === placement.id}
+                            onChange={(e) =>
+                              handleInterviewScheduledChange(
+                                placement.id,
+                                e.target.checked
+                              )
+                            }
+                          />
+                          Interview scheduled
+                        </label>
+                      )}
                     </div>
                     <button
                       onClick={() =>
@@ -591,7 +698,10 @@ export function AdminPlacementList({
                     )}
 
                   {(placement.status === "Copywriting in Progress" ||
-                    placement.status === "New Campaign") && (
+                    placement.status === "New Campaign" ||
+                    placement.status === "Drafting Script" ||
+                    placement.status === "Drafting Questions" ||
+                    placement.status === "Revising for Client") && (
                     <div className="mt-3">
                       <button
                         onClick={() => handlePeakTeamApproved(placement)}

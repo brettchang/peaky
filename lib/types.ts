@@ -4,7 +4,19 @@ export type PlacementStatus =
   | "Copywriting in Progress"
   | "Peak Team Review Complete"
   | "Sent for Approval"
-  | "Approved";
+  | "Approved"
+  | "Onboarding Requested"
+  | "Drafting Script"
+  | "Script Review by Client"
+  | "Approved Script"
+  | "Audio Sent for Approval"
+  | "Audio Sent"
+  | "Audio Approved"
+  | "Drafting Questions"
+  | "Questions In Review"
+  | "Client Reviewing Interview"
+  | "Revising for Client"
+  | "Approved Interview";
 
 // === Notion Campaigns DB statuses (campaign-level) ===
 export type CampaignStatus =
@@ -20,7 +32,19 @@ export type ClientDisplayStatus =
   | "Copywriting in Progress"
   | "Peak Team Review Complete"
   | "Sent for Approval"
-  | "Approved";
+  | "Approved"
+  | "Onboarding Requested"
+  | "Drafting Script"
+  | "Script Review by Client"
+  | "Approved Script"
+  | "Audio Sent for Approval"
+  | "Audio Sent"
+  | "Audio Approved"
+  | "Drafting Questions"
+  | "Questions In Review"
+  | "Client Reviewing Interview"
+  | "Revising for Client"
+  | "Approved Interview";
 
 export function getClientDisplayStatus(status: PlacementStatus): ClientDisplayStatus {
   switch (status) {
@@ -30,6 +54,18 @@ export function getClientDisplayStatus(status: PlacementStatus): ClientDisplaySt
     case "Peak Team Review Complete":
     case "Sent for Approval":
     case "Approved":
+    case "Onboarding Requested":
+    case "Drafting Script":
+    case "Script Review by Client":
+    case "Approved Script":
+    case "Audio Sent for Approval":
+    case "Audio Sent":
+    case "Audio Approved":
+    case "Drafting Questions":
+    case "Questions In Review":
+    case "Client Reviewing Interview":
+    case "Revising for Client":
+    case "Approved Interview":
       return status;
     default:
       return "Copywriting in Progress";
@@ -44,7 +80,26 @@ export type PlacementType =
   | "Beehiv"
   | "Smart Links"
   | "BLS"
-  | "Podcast Ad";
+  | "Podcast Ad"
+  | ":30 Pre-Roll"
+  | ":30 Mid-Roll"
+  | "15 Minute Interview";
+
+export const NEWSLETTER_PLACEMENT_TYPES: PlacementType[] = [
+  "Primary",
+  "Secondary",
+  "Peak Picks",
+  "Beehiv",
+  "Smart Links",
+  "BLS",
+  "Podcast Ad",
+];
+
+export const PODCAST_PLACEMENT_TYPES: PlacementType[] = [
+  ":30 Pre-Roll",
+  ":30 Mid-Roll",
+  "15 Minute Interview",
+];
 
 // === Daily capacity limits per placement type (per publication, weekdays only) ===
 // null = unlimited
@@ -56,6 +111,9 @@ export const DAILY_CAPACITY_LIMITS: Record<PlacementType, number | null> = {
   "Smart Links": null,
   BLS: null,
   "Podcast Ad": null,
+  ":30 Pre-Roll": null,
+  ":30 Mid-Roll": null,
+  "15 Minute Interview": null,
 };
 
 // === Capacity / scheduling types ===
@@ -80,7 +138,119 @@ export interface DateRangeCapacity {
 }
 
 // === Notion Ad Calendar publications ===
-export type Publication = "The Peak" | "Peak Money";
+export type Publication = "The Peak" | "Peak Money" | "Peak Daily Podcast";
+
+export const PODCAST_PUBLICATION: Publication = "Peak Daily Podcast";
+
+export const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
+  { value: "The Peak", label: "The Peak Daily Newsletter" },
+  { value: "Peak Money", label: "Peak Money" },
+  { value: PODCAST_PUBLICATION, label: "Peak Daily Podcast" },
+];
+
+export const NEWSLETTER_PLACEMENT_STATUSES: PlacementStatus[] = [
+  "New Campaign",
+  "Copywriting in Progress",
+  "Peak Team Review Complete",
+  "Sent for Approval",
+  "Approved",
+];
+
+export const PODCAST_SPOT_PLACEMENT_STATUSES: PlacementStatus[] = [
+  "Onboarding Requested",
+  "Drafting Script",
+  "Script Review by Client",
+  "Approved Script",
+  "Audio Sent for Approval",
+  "Audio Approved",
+];
+
+export const PODCAST_INTERVIEW_PLACEMENT_STATUSES: PlacementStatus[] = [
+  "Onboarding Requested",
+  "Drafting Questions",
+  "Questions In Review",
+  "Client Reviewing Interview",
+  "Revising for Client",
+  "Approved Interview",
+];
+
+export function isPodcastPublication(publication: Publication): boolean {
+  return publication === PODCAST_PUBLICATION;
+}
+
+export function isPodcastInterviewType(type: PlacementType): boolean {
+  return type === "15 Minute Interview";
+}
+
+export function isPodcastPlacement(type: PlacementType, publication: Publication): boolean {
+  return (
+    isPodcastPublication(publication) ||
+    type === ":30 Pre-Roll" ||
+    type === ":30 Mid-Roll" ||
+    type === "15 Minute Interview"
+  );
+}
+
+export function getPlacementStatusesFor(
+  type: PlacementType,
+  publication: Publication
+): PlacementStatus[] {
+  if (!isPodcastPlacement(type, publication)) {
+    return NEWSLETTER_PLACEMENT_STATUSES;
+  }
+  if (isPodcastInterviewType(type)) {
+    return PODCAST_INTERVIEW_PLACEMENT_STATUSES;
+  }
+  return PODCAST_SPOT_PLACEMENT_STATUSES;
+}
+
+export function getDefaultPlacementStatus(
+  type: PlacementType,
+  publication: Publication
+): PlacementStatus {
+  return isPodcastPlacement(type, publication)
+    ? "Onboarding Requested"
+    : "New Campaign";
+}
+
+export function isClientReviewStatus(status: PlacementStatus): boolean {
+  return (
+    status === "Peak Team Review Complete" ||
+    status === "Sent for Approval" ||
+    status === "Script Review by Client" ||
+    status === "Audio Sent for Approval" ||
+    status === "Audio Sent" ||
+    status === "Questions In Review" ||
+    status === "Client Reviewing Interview"
+  );
+}
+
+export function isApprovedStatus(status: PlacementStatus): boolean {
+  return (
+    status === "Approved" ||
+    status === "Approved Script" ||
+    status === "Audio Approved" ||
+    status === "Approved Interview"
+  );
+}
+
+export function getPlacementWorkflowGroup(
+  status: PlacementStatus
+): "needs-action" | "in-review" | "approved" {
+  if (isApprovedStatus(status)) return "approved";
+  if (
+    status === "Peak Team Review Complete" ||
+    status === "Sent for Approval" ||
+    status === "Script Review by Client" ||
+    status === "Audio Sent for Approval" ||
+    status === "Audio Sent" ||
+    status === "Questions In Review" ||
+    status === "Client Reviewing Interview"
+  ) {
+    return "in-review";
+  }
+  return "needs-action";
+}
 
 export interface CopyVersion {
   version: number;
@@ -116,6 +286,8 @@ export interface Placement {
   type: PlacementType;
   publication: Publication;
   scheduledDate?: string;             // Ad Calendar "Date"
+  scheduledEndDate?: string;
+  interviewScheduled?: boolean;
   status: PlacementStatus;
   currentCopy: string;
   copyVersion: number;

@@ -2,30 +2,34 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ClientPlacementRow, PlacementStatus, getClientDisplayStatus } from "@/lib/types";
+import {
+  ClientPlacementRow,
+  PlacementStatus,
+  getClientDisplayStatus,
+  getPlacementWorkflowGroup,
+} from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PerformanceStats } from "@/components/PerformanceStats";
 
 type FilterTab =
   | "All"
-  | "New Campaign"
-  | "Copywriting in Progress"
-  | "Peak Team Review Complete"
-  | "Sent for Approval"
+  | "Needs Action"
+  | "In Review"
   | "Approved";
 
 const FILTER_TABS: FilterTab[] = [
   "All",
-  "New Campaign",
-  "Copywriting in Progress",
-  "Peak Team Review Complete",
-  "Sent for Approval",
+  "Needs Action",
+  "In Review",
   "Approved",
 ];
 
 function matchesFilter(status: PlacementStatus, filter: FilterTab): boolean {
   if (filter === "All") return true;
-  return getClientDisplayStatus(status) === filter;
+  const group = getPlacementWorkflowGroup(status);
+  if (filter === "Needs Action") return group === "needs-action";
+  if (filter === "In Review") return group === "in-review";
+  return group === "approved";
 }
 
 export function PlacementDashboard({
@@ -96,13 +100,10 @@ export function PlacementDashboard({
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {row.placement.scheduledDate
-                        ? new Date(
-                            row.placement.scheduledDate + "T00:00:00"
-                          ).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
+                        ? formatDateRange(
+                            row.placement.scheduledDate,
+                            row.placement.scheduledEndDate
+                          )
                         : ""}
                     </td>
                     <td className="px-4 py-3">
@@ -148,4 +149,19 @@ export function PlacementDashboard({
       </div>
     </div>
   );
+}
+
+function formatDateRange(start: string, end?: string): string {
+  const startLabel = new Date(start + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  if (!end || end <= start) return startLabel;
+  const endLabel = new Date(end + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startLabel} - ${endLabel}`;
 }

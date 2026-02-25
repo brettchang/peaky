@@ -9,7 +9,9 @@ export { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT };
 
 interface PlacementInput {
   id: string;
+  name: string;
   type: PlacementType;
+  publication: string;
   brief: string;
   scheduledDate?: string;
 }
@@ -27,6 +29,9 @@ const WORD_COUNTS: Record<PlacementType, string> = {
   "Smart Links": "30-50 words",
   BLS: "80-120 words",
   "Podcast Ad": "60-90 words",
+  ":30 Pre-Roll": "60-90 words",
+  ":30 Mid-Roll": "60-90 words",
+  "15 Minute Interview": "8-12 interview questions",
 };
 
 function applyTemplateVariables(
@@ -44,21 +49,30 @@ export async function generateCopyForPlacements(input: {
   placements: PlacementInput[];
 }): Promise<GeneratedCopy[]> {
   const rawPrompt = await getSetting(AI_COPY_PROMPT_KEY) || DEFAULT_AI_COPY_PROMPT;
-
-  const systemPrompt = applyTemplateVariables(rawPrompt, {
+  const templatePrompt = applyTemplateVariables(rawPrompt, {
     campaignName: input.campaignName,
     clientName: input.clientName,
     messaging: input.messaging,
     desiredAction: input.desiredAction,
   });
+  const systemPrompt = `${templatePrompt}
+
+Non-negotiable instruction priority:
+1) Placement-specific brief for each placement (highest priority for that placement).
+2) Campaign-level messaging and desired action.
+3) Type/length formatting constraints.
+
+If a placement brief asks for a specific theme or angle, use that theme for that placement even when the campaign messaging is broader.`;
 
   const placementDescriptions = input.placements
     .map(
       (p, i) =>
         `Placement ${i + 1} (ID: ${p.id}):
+  - Name: ${p.name}
   - Type: ${p.type}
+  - Publication: ${p.publication}
   - Target length: ${WORD_COUNTS[p.type]}
-  - Client brief: ${p.brief || "No specific brief provided"}
+  - Placement-specific request: ${p.brief || "None provided; rely on campaign messaging"}
   ${p.scheduledDate ? `- Scheduled: ${p.scheduledDate}` : ""}`
     )
     .join("\n\n");
@@ -70,7 +84,7 @@ export async function generateCopyForPlacements(input: {
     messages: [
       {
         role: "user",
-        content: `Write ad copy for the following placements:
+        content: `Write ad copy for the following placements. Treat each placement independently.
 
 ${placementDescriptions}
 

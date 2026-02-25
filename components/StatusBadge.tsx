@@ -9,6 +9,18 @@ const statusStyles: Record<string, string> = {
   "Peak Team Review Complete": "bg-yellow-100 text-yellow-700",
   "Sent for Approval": "bg-blue-100 text-blue-700",
   Approved: "bg-green-100 text-green-700",
+  "Onboarding Requested": "bg-slate-100 text-slate-700",
+  "Drafting Script": "bg-amber-100 text-amber-700",
+  "Script Review by Client": "bg-blue-100 text-blue-700",
+  "Approved Script": "bg-emerald-100 text-emerald-700",
+  "Audio Sent for Approval": "bg-indigo-100 text-indigo-700",
+  "Audio Sent": "bg-indigo-100 text-indigo-700",
+  "Audio Approved": "bg-green-100 text-green-700",
+  "Drafting Questions": "bg-amber-100 text-amber-700",
+  "Questions In Review": "bg-blue-100 text-blue-700",
+  "Client Reviewing Interview": "bg-violet-100 text-violet-700",
+  "Revising for Client": "bg-orange-100 text-orange-700",
+  "Approved Interview": "bg-green-100 text-green-700",
 
   // Campaign statuses (Notion Campaigns DB)
   "Waiting on Onboarding": "bg-gray-100 text-gray-700",

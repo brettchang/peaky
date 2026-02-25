@@ -7,7 +7,7 @@ import { CalendarView } from "@/components/CalendarView";
 import { AdminPlacementDashboard } from "@/components/AdminPlacementDashboard";
 
 type View = "table" | "calendar" | "placements";
-type PublicationFilter = "All" | "The Peak" | "Peak Money";
+type PublicationFilter = "All" | "The Peak" | "Peak Money" | "Peak Daily Podcast";
 
 export function DashboardViewToggle({
   data,
@@ -74,7 +74,7 @@ export function DashboardViewToggle({
 
         {/* Publication filter */}
         <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-          {(["All", "The Peak", "Peak Money"] as PublicationFilter[]).map(
+          {(["All", "The Peak", "Peak Money", "Peak Daily Podcast"] as PublicationFilter[]).map(
             (option) => (
               <button
                 key={option}
@@ -90,6 +90,31 @@ export function DashboardViewToggle({
             )
           )}
         </div>
+
+        {view === "calendar" && (
+          <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            <button
+              onClick={() => setPublicationFilter("All")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                publicationFilter !== "Peak Daily Podcast"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Newsletter Calendar
+            </button>
+            <button
+              onClick={() => setPublicationFilter("Peak Daily Podcast")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                publicationFilter === "Peak Daily Podcast"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Podcast Calendar
+            </button>
+          </div>
+        )}
       </div>
 
       {/* View */}

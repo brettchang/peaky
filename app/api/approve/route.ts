@@ -20,13 +20,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!linkToPlacement) {
-    return NextResponse.json(
-      { error: "linkToPlacement is required" },
-      { status: 400 }
-    );
-  }
-
   const client = await getClientByPortalId(clientId);
   if (!client) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
@@ -57,11 +50,26 @@ export async function POST(request: NextRequest) {
 
   if (
     placement.status !== "Sent for Approval" &&
-    placement.status !== "Peak Team Review Complete"
+    placement.status !== "Peak Team Review Complete" &&
+    placement.status !== "Script Review by Client" &&
+    placement.status !== "Audio Sent for Approval" &&
+    placement.status !== "Audio Sent" &&
+    placement.status !== "Questions In Review" &&
+    placement.status !== "Client Reviewing Interview"
   ) {
     return NextResponse.json(
       { error: "Placement is not available for approval" },
       { status: 409 }
+    );
+  }
+
+  const requiresPlacementLink =
+    placement.status === "Sent for Approval" ||
+    placement.status === "Peak Team Review Complete";
+  if (requiresPlacementLink && !linkToPlacement) {
+    return NextResponse.json(
+      { error: "linkToPlacement is required" },
+      { status: 400 }
     );
   }
 
@@ -77,7 +85,18 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const updated = await updatePlacementStatus(campaignId, placementId, "Approved");
+  const approvedStatus =
+    placement.status === "Script Review by Client"
+      ? "Approved Script"
+      : placement.status === "Audio Sent for Approval" ||
+          placement.status === "Audio Sent"
+        ? "Audio Approved"
+        : placement.status === "Questions In Review" ||
+            placement.status === "Client Reviewing Interview"
+          ? "Approved Interview"
+          : "Approved";
+
+  const updated = await updatePlacementStatus(campaignId, placementId, approvedStatus);
   if (!updated) {
     return NextResponse.json(
       { error: "Failed to update placement" },
@@ -85,7 +104,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  await updatePlacementLink(campaignId, placementId, linkToPlacement);
+  if (linkToPlacement) {
+    await updatePlacementLink(campaignId, placementId, linkToPlacement);
+  }
 
   revalidatePath("/dashboard", "layout");
   return NextResponse.json({ success: true });

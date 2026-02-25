@@ -2,7 +2,18 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { Placement, PlacementType, Publication, PlacementStatus, AdLineItem } from "@/lib/types";
+import {
+  Placement,
+  PlacementType,
+  Publication,
+  PlacementStatus,
+  AdLineItem,
+  PUBLICATIONS,
+  PODCAST_PUBLICATION,
+  PODCAST_PLACEMENT_TYPES,
+  getPlacementStatusesFor,
+  isPodcastInterviewType,
+} from "@/lib/types";
 import type { PlacementInvoiceLink } from "@/lib/xero-types";
 import { CopyEditor } from "@/components/CopyEditor";
 import { InvoiceLinkModal } from "@/components/InvoiceLinkModal";
@@ -12,19 +23,9 @@ const PLACEMENT_TYPES: PlacementType[] = [
   "Primary",
   "Secondary",
   "Peak Picks",
-];
-
-const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
-  { value: "The Peak", label: "The Peak Daily Newsletter" },
-  { value: "Peak Money", label: "Peak Money" },
-];
-
-const PLACEMENT_STATUSES: PlacementStatus[] = [
-  "New Campaign",
-  "Copywriting in Progress",
-  "Peak Team Review Complete",
-  "Sent for Approval",
-  "Approved",
+  ":30 Pre-Roll",
+  ":30 Mid-Roll",
+  "15 Minute Interview",
 ];
 
 const CONFLICT_OPTIONS = [
@@ -67,6 +68,8 @@ export function AdminPlacementDetail({
     type: placement.type,
     publication: placement.publication,
     scheduledDate: placement.scheduledDate ?? "",
+    scheduledEndDate: placement.scheduledEndDate ?? "",
+    interviewScheduled: placement.interviewScheduled ?? false,
     status: placement.status,
     copyProducer: placement.copyProducer ?? "",
     linkToPlacement: placement.linkToPlacement ?? "",
@@ -104,6 +107,8 @@ export function AdminPlacementDetail({
       type: placement.type,
       publication: placement.publication,
       scheduledDate: placement.scheduledDate ?? "",
+      scheduledEndDate: placement.scheduledEndDate ?? "",
+      interviewScheduled: placement.interviewScheduled ?? false,
       status: placement.status,
       copyProducer: placement.copyProducer ?? "",
       linkToPlacement: placement.linkToPlacement ?? "",
@@ -128,6 +133,8 @@ export function AdminPlacementDetail({
           type: form.type,
           publication: form.publication,
           scheduledDate: form.scheduledDate || null,
+          scheduledEndDate: form.scheduledEndDate || null,
+          interviewScheduled: form.interviewScheduled,
           status: form.status,
           copyProducer: form.copyProducer || null,
           linkToPlacement: form.linkToPlacement || null,
@@ -230,7 +237,13 @@ export function AdminPlacementDetail({
         body: JSON.stringify({
           campaignId,
           placementId: placement.id,
-          status: "Peak Team Review Complete",
+          status:
+            placement.status === "Drafting Script" ||
+            placement.status === "Revising for Client"
+              ? "Script Review by Client"
+              : placement.status === "Drafting Questions"
+                ? "Questions In Review"
+                : "Peak Team Review Complete",
         }),
       });
       if (statusRes.ok) {
@@ -275,9 +288,24 @@ export function AdminPlacementDetail({
                 <label className="block text-xs text-gray-500">Type</label>
                 <select
                   value={form.type}
-                  onChange={(e) =>
-                    setForm({ ...form, type: e.target.value as PlacementType })
-                  }
+                  onChange={(e) => {
+                    const nextType = e.target.value as PlacementType;
+                    const nextPublication = PODCAST_PLACEMENT_TYPES.includes(nextType)
+                      ? PODCAST_PUBLICATION
+                      : form.publication;
+                    const nextStatuses = getPlacementStatusesFor(
+                      nextType,
+                      nextPublication
+                    );
+                    setForm({
+                      ...form,
+                      type: nextType,
+                      publication: nextPublication,
+                      status: nextStatuses.includes(form.status)
+                        ? form.status
+                        : nextStatuses[0],
+                    });
+                  }}
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
                   {PLACEMENT_TYPES.map((t) => (
@@ -293,12 +321,26 @@ export function AdminPlacementDetail({
                 </label>
                 <select
                   value={form.publication}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextPublication = e.target.value as Publication;
+                    const nextType =
+                      nextPublication === PODCAST_PUBLICATION &&
+                      !PODCAST_PLACEMENT_TYPES.includes(form.type)
+                        ? ":30 Pre-Roll"
+                        : form.type;
+                    const nextStatuses = getPlacementStatusesFor(
+                      nextType,
+                      nextPublication
+                    );
                     setForm({
                       ...form,
-                      publication: e.target.value as Publication,
-                    })
-                  }
+                      type: nextType,
+                      publication: nextPublication,
+                      status: nextStatuses.includes(form.status)
+                        ? form.status
+                        : nextStatuses[0],
+                    });
+                  }}
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
                   {PUBLICATIONS.map((p) => (
@@ -310,7 +352,9 @@ export function AdminPlacementDetail({
               </div>
               <div>
                 <label className="block text-xs text-gray-500">
-                  Scheduled Date
+                  {form.publication === PODCAST_PUBLICATION
+                    ? "Scheduled Start"
+                    : "Scheduled Date"}
                 </label>
                 <input
                   type="date"
@@ -321,6 +365,21 @@ export function AdminPlacementDetail({
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 />
               </div>
+              {form.publication === PODCAST_PUBLICATION && (
+                <div>
+                  <label className="block text-xs text-gray-500">
+                    Scheduled End
+                  </label>
+                  <input
+                    type="date"
+                    value={form.scheduledEndDate}
+                    onChange={(e) =>
+                      setForm({ ...form, scheduledEndDate: e.target.value })
+                    }
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-500">Status</label>
                 <select
@@ -333,13 +392,33 @@ export function AdminPlacementDetail({
                   }
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
-                  {PLACEMENT_STATUSES.map((s) => (
+                  {getPlacementStatusesFor(form.type, form.publication).map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
                   ))}
                 </select>
               </div>
+              {isPodcastInterviewType(form.type) && (
+                <div>
+                  <label className="block text-xs text-gray-500">
+                    Interview Scheduling
+                  </label>
+                  <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={form.interviewScheduled}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          interviewScheduled: e.target.checked,
+                        })
+                      }
+                    />
+                    Interview scheduled
+                  </label>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-500">
                   Copy Producer
@@ -466,7 +545,11 @@ export function AdminPlacementDetail({
             <div>
               <p className="text-xs text-gray-500">Scheduled Date</p>
               <p className="text-sm font-medium text-gray-900">
-                {placement.scheduledDate ?? "—"}
+                {placement.scheduledDate
+                  ? placement.scheduledEndDate && placement.scheduledEndDate > placement.scheduledDate
+                    ? `${placement.scheduledDate} - ${placement.scheduledEndDate}`
+                    : placement.scheduledDate
+                  : "—"}
               </p>
             </div>
             <div>
@@ -481,6 +564,14 @@ export function AdminPlacementDetail({
                 {placement.copyProducer ?? "—"}
               </p>
             </div>
+            {isPodcastInterviewType(placement.type) && (
+              <div>
+                <p className="text-xs text-gray-500">Interview</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
+                </p>
+              </div>
+            )}
             {placement.linkToPlacement && (
               <div className="col-span-2 sm:col-span-3">
                 <p className="text-xs text-gray-500">Link</p>
@@ -714,7 +805,10 @@ export function AdminPlacementDetail({
             )}
 
             {(placement.status === "Copywriting in Progress" ||
-              placement.status === "New Campaign") && (
+              placement.status === "New Campaign" ||
+              placement.status === "Drafting Script" ||
+              placement.status === "Drafting Questions" ||
+              placement.status === "Revising for Client") && (
               <div className="mt-3">
                 <button
                   onClick={handlePeakTeamApproved}

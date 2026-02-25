@@ -2,16 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { DashboardCampaign, PlacementStatus, Placement } from "@/lib/types";
+import {
+  DashboardCampaign,
+  Placement,
+  getPlacementWorkflowGroup,
+} from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 
 type FilterTab = "All" | "Needs Action" | "In Review" | "Approved";
-
-const FILTER_STATUSES: Record<Exclude<FilterTab, "All">, PlacementStatus[]> = {
-  "Needs Action": ["New Campaign", "Copywriting in Progress"],
-  "In Review": ["Peak Team Review Complete", "Sent for Approval"],
-  Approved: ["Approved"],
-};
 
 const TABS: FilterTab[] = ["All", "Needs Action", "In Review", "Approved"];
 
@@ -37,7 +35,12 @@ export function AdminPlacementDashboard({ data }: { data: DashboardCampaign[] })
   const filtered =
     activeTab === "All"
       ? allRows
-      : allRows.filter((r) => FILTER_STATUSES[activeTab].includes(r.placement.status));
+      : allRows.filter((r) => {
+          const group = getPlacementWorkflowGroup(r.placement.status);
+          if (activeTab === "Needs Action") return group === "needs-action";
+          if (activeTab === "In Review") return group === "in-review";
+          return group === "approved";
+        });
 
   return (
     <div>
@@ -47,7 +50,12 @@ export function AdminPlacementDashboard({ data }: { data: DashboardCampaign[] })
           const count =
             tab === "All"
               ? allRows.length
-              : allRows.filter((r) => FILTER_STATUSES[tab].includes(r.placement.status)).length;
+              : allRows.filter((r) => {
+                  const group = getPlacementWorkflowGroup(r.placement.status);
+                  if (tab === "Needs Action") return group === "needs-action";
+                  if (tab === "In Review") return group === "in-review";
+                  return group === "approved";
+                }).length;
           return (
             <button
               key={tab}
@@ -101,9 +109,9 @@ export function AdminPlacementDashboard({ data }: { data: DashboardCampaign[] })
                 <td className="px-4 py-3 text-gray-700">{row.placement.publication}</td>
                 <td className="px-4 py-3 text-gray-700">
                   {row.placement.scheduledDate
-                    ? new Date(row.placement.scheduledDate + "T00:00:00").toLocaleDateString(
-                        "en-US",
-                        { month: "short", day: "numeric", year: "numeric" }
+                    ? formatDateRange(
+                        row.placement.scheduledDate,
+                        row.placement.scheduledEndDate
                       )
                     : "—"}
                 </td>
@@ -125,4 +133,19 @@ export function AdminPlacementDashboard({ data }: { data: DashboardCampaign[] })
       </div>
     </div>
   );
+}
+
+function formatDateRange(start: string, end?: string): string {
+  const startLabel = new Date(start + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  if (!end || end <= start) return startLabel;
+  const endLabel = new Date(end + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startLabel} - ${endLabel}`;
 }

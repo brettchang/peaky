@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Placement, getClientDisplayStatus } from "@/lib/types";
+import {
+  Placement,
+  getClientDisplayStatus,
+  isClientReviewStatus,
+  isPodcastPublication,
+} from "@/lib/types";
 import { formatCopy } from "@/lib/format-copy";
 import { PerformanceStats } from "./PerformanceStats";
 import { ConfirmationScreen } from "./ConfirmationScreen";
@@ -29,13 +34,22 @@ export function CopyReview({
 
   const displayStatus = getClientDisplayStatus(placement.status);
   const hasEdits = editedCopy !== placement.currentCopy;
-  const isClientReviewStage =
-    displayStatus === "Peak Team Review Complete" ||
-    displayStatus === "Sent for Approval";
+  const isClientReviewStage = isClientReviewStatus(displayStatus);
   const canClientViewCopy =
-    displayStatus === "Peak Team Review Complete" ||
-    displayStatus === "Sent for Approval" ||
-    displayStatus === "Approved";
+    isClientReviewStatus(displayStatus) ||
+    displayStatus === "Approved" ||
+    displayStatus === "Approved Script" ||
+    displayStatus === "Audio Approved" ||
+    displayStatus === "Approved Interview";
+
+  const reviewAssetLabel = isPodcastPublication(placement.publication)
+    ? placement.status === "Audio Sent for Approval" || placement.status === "Audio Sent"
+      ? "audio"
+      : placement.status === "Questions In Review" ||
+          placement.status === "Client Reviewing Interview"
+        ? "interview"
+        : "script"
+    : "copy";
 
   if (confirmationType) {
     return <ConfirmationScreen type={confirmationType} />;
@@ -160,7 +174,7 @@ export function CopyReview({
               disabled={isSubmitting || !placementLink.trim()}
               className="rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
-              {isSubmitting ? "Approving..." : "Approve Copy"}
+              {isSubmitting ? "Approving..." : `Approve ${reviewAssetLabel}`}
             </button>
           </div>
           <div className="space-y-2">
@@ -226,6 +240,15 @@ export function CopyReview({
         <div className="rounded-lg border border-green-200 bg-green-50 p-4">
           <p className="text-sm text-green-700">
             This copy has been approved and is scheduled for publishing.
+          </p>
+        </div>
+      )}
+      {(displayStatus === "Approved Script" ||
+        displayStatus === "Audio Approved" ||
+        displayStatus === "Approved Interview") && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <p className="text-sm text-green-700">
+            This placement stage is approved. Our team will schedule the run.
           </p>
         </div>
       )}
