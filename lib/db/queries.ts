@@ -21,6 +21,7 @@ import type {
   SlotCapacity,
   DayCapacity,
   DateRangeCapacity,
+  CampaignContact,
 } from "../types";
 import { DAILY_CAPACITY_LIMITS } from "../types";
 import type { CampaignInvoiceLink, PlacementInvoiceLink } from "../xero-types";
@@ -33,6 +34,20 @@ interface CampaignPortalMeta {
   representingClient?: boolean;
   wantsPeakCopy?: boolean;
   salesPerson?: string;
+  contacts?: CampaignContact[];
+}
+
+function normalizeCampaignContacts(
+  contacts: CampaignContact[] | undefined
+): CampaignContact[] | undefined {
+  if (!contacts) return undefined;
+  const normalized = contacts
+    .map((c) => ({
+      name: c.name?.trim() ?? "",
+      email: c.email?.trim() ?? "",
+    }))
+    .filter((c) => c.name && c.email);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function extractCampaignPortalMeta(notes?: string | null): {
@@ -170,6 +185,11 @@ type CampaignRelational = typeof schema.campaigns.$inferSelect & {
 
 function mapCampaign(row: CampaignRelational): Campaign {
   const extracted = extractCampaignPortalMeta(row.notes);
+  const contacts =
+    normalizeCampaignContacts(extracted.meta.contacts) ??
+    (row.contactName && row.contactEmail
+      ? [{ name: row.contactName, email: row.contactEmail }]
+      : undefined);
   return {
     id: row.id,
     name: row.name,
@@ -179,6 +199,7 @@ function mapCampaign(row: CampaignRelational): Campaign {
     campaignManager: row.campaignManager ?? undefined,
     contactName: row.contactName ?? undefined,
     contactEmail: row.contactEmail ?? undefined,
+    contacts,
     adLineItems: (row.adLineItems as AdLineItem[]) ?? undefined,
     placementsDescription: row.placementsDescription ?? undefined,
     performanceTableUrl: row.performanceTableUrl ?? undefined,

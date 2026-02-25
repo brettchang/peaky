@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CampaignStatus } from "@/lib/types";
+import type { CampaignStatus, CampaignContact } from "@/lib/types";
 
 const CAMPAIGN_STATUSES: CampaignStatus[] = [
   "Waiting on Onboarding",
@@ -22,6 +22,7 @@ interface CampaignMetadataEditorProps {
     campaignManager?: string;
     contactName?: string;
     contactEmail?: string;
+    contacts?: CampaignContact[];
     notes?: string;
     placementCount: number;
     invoiceCadenceLabel?: string;
@@ -44,8 +45,12 @@ export function CampaignMetadataEditor({
     status: campaign.status,
     salesPerson: campaign.salesPerson ?? "",
     campaignManager: campaign.campaignManager ?? "",
-    contactName: campaign.contactName ?? "",
-    contactEmail: campaign.contactEmail ?? "",
+    contacts:
+      campaign.contacts && campaign.contacts.length > 0
+        ? campaign.contacts
+        : campaign.contactName && campaign.contactEmail
+        ? [{ name: campaign.contactName, email: campaign.contactEmail }]
+        : [{ name: "", email: "" }],
     notes: campaign.notes ?? "",
   });
 
@@ -56,8 +61,12 @@ export function CampaignMetadataEditor({
       status: campaign.status,
       salesPerson: campaign.salesPerson ?? "",
       campaignManager: campaign.campaignManager ?? "",
-      contactName: campaign.contactName ?? "",
-      contactEmail: campaign.contactEmail ?? "",
+      contacts:
+        campaign.contacts && campaign.contacts.length > 0
+          ? campaign.contacts
+          : campaign.contactName && campaign.contactEmail
+          ? [{ name: campaign.contactName, email: campaign.contactEmail }]
+          : [{ name: "", email: "" }],
       notes: campaign.notes ?? "",
     });
     setError(null);
@@ -78,8 +87,9 @@ export function CampaignMetadataEditor({
           status: form.status,
           salesPerson: form.salesPerson || null,
           campaignManager: form.campaignManager || null,
-          contactName: form.contactName || null,
-          contactEmail: form.contactEmail || null,
+          contacts: form.contacts
+            .map((c) => ({ name: c.name.trim(), email: c.email.trim() }))
+            .filter((c) => c.name && c.email),
           notes: form.notes || null,
         }),
       });
@@ -93,6 +103,31 @@ export function CampaignMetadataEditor({
     } finally {
       setSaving(false);
     }
+  }
+
+  function updateContact(index: number, field: "name" | "email", value: string) {
+    setForm((prev) => {
+      const nextContacts = [...prev.contacts];
+      nextContacts[index] = { ...nextContacts[index], [field]: value };
+      return { ...prev, contacts: nextContacts };
+    });
+  }
+
+  function addContact() {
+    setForm((prev) => ({
+      ...prev,
+      contacts: [...prev.contacts, { name: "", email: "" }],
+    }));
+  }
+
+  function removeContact(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      contacts:
+        prev.contacts.length === 1
+          ? [{ name: "", email: "" }]
+          : prev.contacts.filter((_, i) => i !== index),
+    }));
   }
 
   if (editing) {
@@ -160,27 +195,44 @@ export function CampaignMetadataEditor({
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
           </div>
-          <div>
-            <label className="block text-xs text-gray-500">Contact</label>
-            <input
-              type="text"
-              value={form.contactName}
-              onChange={(e) =>
-                setForm({ ...form, contactName: e.target.value })
-              }
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500">Email</label>
-            <input
-              type="text"
-              value={form.contactEmail}
-              onChange={(e) =>
-                setForm({ ...form, contactEmail: e.target.value })
-              }
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-            />
+          <div className="col-span-2 sm:col-span-3">
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-xs text-gray-500">Contacts</label>
+              <button
+                type="button"
+                onClick={addContact}
+                className="text-xs font-medium text-gray-600 hover:text-gray-900"
+              >
+                + Add Contact
+              </button>
+            </div>
+            <div className="space-y-2">
+              {form.contacts.map((contact, index) => (
+                <div key={index} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    type="text"
+                    value={contact.name}
+                    onChange={(e) => updateContact(index, "name", e.target.value)}
+                    placeholder="Contact name"
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="email"
+                    value={contact.email}
+                    onChange={(e) => updateContact(index, "email", e.target.value)}
+                    placeholder="contact@company.com"
+                    className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeContact(index)}
+                    className="rounded border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="col-span-2 sm:col-span-3">
             <label className="block text-xs text-gray-500">Notes</label>
@@ -291,20 +343,16 @@ export function CampaignMetadataEditor({
             </p>
           </div>
         )}
-        {campaign.contactName && (
-          <div>
-            <p className="text-xs text-gray-500">Contact</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.contactName}
-            </p>
-          </div>
-        )}
-        {campaign.contactEmail && (
-          <div>
-            <p className="text-xs text-gray-500">Email</p>
-            <p className="text-sm font-medium text-gray-900">
-              {campaign.contactEmail}
-            </p>
+        {campaign.contacts && campaign.contacts.length > 0 && (
+          <div className="col-span-2 sm:col-span-3">
+            <p className="text-xs text-gray-500">Contacts</p>
+            <div className="mt-1 space-y-1">
+              {campaign.contacts.map((contact, index) => (
+                <p key={`${contact.email}-${index}`} className="text-sm font-medium text-gray-900">
+                  {contact.name} · {contact.email}
+                </p>
+              ))}
+            </div>
           </div>
         )}
         <div>

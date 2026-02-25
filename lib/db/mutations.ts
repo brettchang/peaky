@@ -14,6 +14,7 @@ import type {
   Publication,
   CampaignStatus,
   PerformanceStats,
+  CampaignContact,
 } from "../types";
 import { DAILY_CAPACITY_LIMITS } from "../types";
 import { getCampaignById, getPlacement } from "./queries";
@@ -31,6 +32,7 @@ interface BillingPortalMeta {
   representingClient?: boolean;
   wantsPeakCopy?: boolean;
   salesPerson?: string;
+  contacts?: CampaignContact[];
 }
 
 function extractBillingPortalMeta(notes?: string | null): {
@@ -66,9 +68,11 @@ function attachBillingPortalMeta(
   cleanNotes: string | null,
   meta: BillingPortalMeta
 ): string {
-  const hasMeta = Object.values(meta).some(
-    (value) => value !== undefined && value !== null && value !== ""
-  );
+  const hasMeta = Object.values(meta).some((value) => {
+    if (value === undefined || value === null || value === "") return false;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  });
   if (!hasMeta) return cleanNotes ?? "";
 
   const block = `${BILLING_META_START}\n${JSON.stringify(meta)}\n${BILLING_META_END}`;
@@ -234,6 +238,7 @@ export function createCampaign(data: {
   campaignManager?: string;
   contactName?: string;
   contactEmail?: string;
+  contacts?: CampaignContact[];
   adLineItems?: AdLineItem[];
   notes?: string;
 }): Promise<Campaign> {
@@ -245,7 +250,13 @@ export function createCampaign(data: {
     // Insert campaign
     const notesWithMeta = attachBillingPortalMeta(data.notes ?? null, {
       salesPerson: data.salesPerson,
+      contacts: data.contacts,
     });
+
+    const primaryContact =
+      data.contacts && data.contacts.length > 0
+        ? data.contacts[0]
+        : undefined;
 
     await db.insert(schema.campaigns).values({
       id: campaignId,
@@ -253,8 +264,8 @@ export function createCampaign(data: {
       clientId: client.id,
       status: "Waiting on Onboarding",
       campaignManager: data.campaignManager ?? null,
-      contactName: data.contactName ?? null,
-      contactEmail: data.contactEmail ?? null,
+      contactName: primaryContact?.name ?? data.contactName ?? null,
+      contactEmail: primaryContact?.email ?? data.contactEmail ?? null,
       adLineItems: data.adLineItems ?? null,
       notes: notesWithMeta || null,
       createdAt: now,
@@ -608,6 +619,7 @@ export async function updateCampaignMetadata(
     campaignManager?: string | null;
     contactName?: string | null;
     contactEmail?: string | null;
+    contacts?: CampaignContact[] | null;
     notes?: string | null;
   }
 ): Promise<boolean> {
@@ -623,6 +635,15 @@ export async function updateCampaignMetadata(
       data.salesPerson !== undefined
         ? data.salesPerson ?? undefined
         : extracted.meta.salesPerson,
+    contacts:
+      data.contacts !== undefined
+        ? (data.contacts ?? [])
+            .map((c) => ({
+              name: c.name?.trim() ?? "",
+              email: c.email?.trim() ?? "",
+            }))
+            .filter((c) => c.name && c.email)
+        : extracted.meta.contacts,
   };
 
   const nextNotes =
@@ -642,6 +663,11 @@ export async function updateCampaignMetadata(
   }
   if (data.contactEmail !== undefined) {
     updatePayload.contactEmail = data.contactEmail;
+  }
+  if (data.contacts !== undefined) {
+    const firstContact = nextMeta.contacts?.[0];
+    updatePayload.contactName = firstContact?.name ?? null;
+    updatePayload.contactEmail = firstContact?.email ?? null;
   }
 
   if (data.clientName !== undefined) {

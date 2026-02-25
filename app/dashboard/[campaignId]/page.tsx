@@ -49,6 +49,10 @@ export default async function CampaignDetailPage({
   const portalUrl = client
     ? `${baseUrl}/portal/${client.portalId}`
     : "";
+  const primaryContact =
+    campaign.contacts && campaign.contacts.length > 0
+      ? campaign.contacts[0]
+      : undefined;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
@@ -71,8 +75,8 @@ export default async function CampaignDetailPage({
               campaignId={campaign.id}
               campaignName={campaign.name}
               clientName={client.name}
-              recipientEmail={campaign.contactEmail}
-              recipientName={campaign.contactName}
+              recipientEmail={primaryContact?.email ?? campaign.contactEmail}
+              recipientName={primaryContact?.name ?? campaign.contactName}
               portalCampaignUrl={`${portalUrl}/${campaign.id}`}
             />
           )}
@@ -93,6 +97,7 @@ export default async function CampaignDetailPage({
           campaignManager: campaign.campaignManager,
           contactName: campaign.contactName,
           contactEmail: campaign.contactEmail,
+          contacts: campaign.contacts,
           notes: extractCleanNotes(campaign.notes),
           placementCount: campaign.placements.length,
           invoiceCadenceLabel:

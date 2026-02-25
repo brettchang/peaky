@@ -179,6 +179,11 @@ export interface BillingOnboarding {
   uploadedDocUrl?: string;
 }
 
+export interface CampaignContact {
+  name: string;
+  email: string;
+}
+
 export interface Campaign {
   id: string;
   name: string;                       // "Campaign Name"
@@ -188,6 +193,7 @@ export interface Campaign {
   campaignManager?: string;
   contactName?: string;
   contactEmail?: string;
+  contacts?: CampaignContact[];
   adLineItems?: AdLineItem[];
   placementsDescription?: string;     // "Placements" text field
   onboardingRounds: OnboardingRound[];
