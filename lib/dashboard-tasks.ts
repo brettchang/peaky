@@ -2,17 +2,14 @@ import { getAllCampaignsWithClients } from "@/lib/db";
 import type { DashboardTask } from "@/components/DashboardTaskList";
 
 export function buildDashboardTasks(
-  data: Awaited<ReturnType<typeof getAllCampaignsWithClients>>
+  data: Awaited<ReturnType<typeof getAllCampaignsWithClients>>,
+  dismissedTaskIds: ReadonlySet<string> = new Set()
 ): DashboardTask[] {
   const today = new Date();
   const todayKey = toDateKey(today);
   const tasks: DashboardTask[] = [];
 
   for (const { campaign, clientName } of data) {
-    const roundCompleteById = new Map(
-      campaign.onboardingRounds.map((round) => [round.id, round.complete])
-    );
-
     for (const placement of campaign.placements) {
       if (
         placement.status === "Copywriting in Progress" &&
@@ -38,23 +35,21 @@ export function buildDashboardTasks(
       const daysUntil = daysFromToday(todayKey, placement.scheduledDate);
       if (daysUntil < 0 || daysUntil > 7) continue;
 
-      const roundComplete = placement.onboardingRoundId
-        ? (roundCompleteById.get(placement.onboardingRoundId) ?? false)
-        : false;
+      const isClientApproved = placement.status === "Approved";
 
-      if (!roundComplete) {
+      if (!isClientApproved) {
         tasks.push({
           id: `onboarding-${placement.id}`,
           campaignId: campaign.id,
           campaignName: campaign.name,
           clientName,
           type: "onboarding-reminder",
-          title: "Email client: onboarding incomplete",
+          title: "Email client: copy approval pending",
           detail: `${placement.type} runs ${formatDateLong(
             placement.scheduledDate
           )} (${daysUntil === 0 ? "today" : `in ${daysUntil} day${daysUntil !== 1 ? "s" : ""}`}).`,
-          href: `/dashboard/${campaign.id}`,
-          actionLabel: "Open Campaign",
+          href: `/dashboard/${campaign.id}/${placement.id}`,
+          actionLabel: "Open Placement",
           urgent: daysUntil <= 2,
         });
       }
@@ -75,17 +70,19 @@ export function buildDashboardTasks(
     }
   }
 
-  return tasks.sort((a, b) => {
-    if (a.urgent && !b.urgent) return -1;
-    if (!a.urgent && b.urgent) return 1;
+  return tasks
+    .filter((task) => !dismissedTaskIds.has(task.id))
+    .sort((a, b) => {
+      if (a.urgent && !b.urgent) return -1;
+      if (!a.urgent && b.urgent) return 1;
 
-    const priority: Record<DashboardTask["type"], number> = {
-      "onboarding-reminder": 1,
-      "copy-review": 2,
-      "billing-invoice": 3,
-    };
-    return priority[a.type] - priority[b.type];
-  });
+      const priority: Record<DashboardTask["type"], number> = {
+        "onboarding-reminder": 1,
+        "copy-review": 2,
+        "billing-invoice": 3,
+      };
+      return priority[a.type] - priority[b.type];
+    });
 }
 
 function toDateKey(date: Date): string {

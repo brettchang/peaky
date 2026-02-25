@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export interface DashboardTask {
   id: string;
@@ -20,7 +24,16 @@ export function DashboardTaskList({
   tasks: DashboardTask[];
   title?: string;
 }) {
-  const tasksByCampaign = tasks.reduce<
+  const router = useRouter();
+  const [hiddenTaskIds, setHiddenTaskIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState<Record<string, boolean>>({});
+
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => !hiddenTaskIds.has(task.id)),
+    [tasks, hiddenTaskIds]
+  );
+
+  const tasksByCampaign = visibleTasks.reduce<
     Array<{
       key: string;
       campaignId: string;
@@ -45,16 +58,45 @@ export function DashboardTaskList({
     return groups;
   }, []);
 
+  async function handleDeleteTask(taskId: string) {
+    setHiddenTaskIds((prev) => {
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
+    setIsDeleting((prev) => ({ ...prev, [taskId]: true }));
+
+    try {
+      const response = await fetch("/api/dashboard/tasks/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete task");
+      }
+      router.refresh();
+    } catch {
+      setHiddenTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    } finally {
+      setIsDeleting((prev) => ({ ...prev, [taskId]: false }));
+    }
+  }
+
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-5 py-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
         <span className="text-xs text-gray-500">
-          {tasks.length} open task{tasks.length !== 1 && "s"}
+          {visibleTasks.length} open task{visibleTasks.length !== 1 && "s"}
         </span>
       </div>
 
-      {tasks.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <p className="text-sm text-gray-500">No urgent actions right now.</p>
       ) : (
         <div className="space-y-2">
@@ -82,12 +124,22 @@ export function DashboardTaskList({
                         <p className="text-sm font-medium text-gray-900">{task.title}</p>
                         <p className="mt-1 text-xs text-gray-600">{task.detail}</p>
                       </div>
-                      <Link
-                        href={task.href}
-                        className="shrink-0 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800"
-                      >
-                        {task.actionLabel}
-                      </Link>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Link
+                          href={task.href}
+                          className="rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800"
+                        >
+                          {task.actionLabel}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTask(task.id)}
+                          disabled={Boolean(isDeleting[task.id])}
+                          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

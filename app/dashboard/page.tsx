@@ -6,6 +6,10 @@ import { CreateCampaignForm } from "@/components/CreateCampaignForm";
 import { AiPromptEditor } from "@/components/AiPromptEditor";
 import { DashboardTaskList } from "@/components/DashboardTaskList";
 import { AI_COPY_PROMPT_KEY } from "@/lib/ai-constants";
+import {
+  DISMISSED_TASKS_SETTING_KEY,
+  parseDismissedTaskIds,
+} from "@/lib/dashboard-task-dismissals";
 import { buildDashboardTasks } from "@/lib/dashboard-tasks";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +19,14 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const [data, currentPrompt] = await Promise.all([
+  const [data, currentPrompt, dismissedRaw] = await Promise.all([
     getAllCampaignsWithClients(),
     getSetting(AI_COPY_PROMPT_KEY),
+    getSetting(DISMISSED_TASKS_SETTING_KEY),
   ]);
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-  const tasks = buildDashboardTasks(data);
+  const dismissedTaskIds = parseDismissedTaskIds(dismissedRaw);
+  const tasks = buildDashboardTasks(data, dismissedTaskIds);
   const placementCount = data.reduce(
     (sum, row) => sum + row.campaign.placements.length,
     0
