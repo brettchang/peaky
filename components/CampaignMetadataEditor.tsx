@@ -20,6 +20,7 @@ interface CampaignMetadataEditorProps {
     status: CampaignStatus;
     salesPerson?: string;
     campaignManager?: string;
+    legacyOnboardingDocUrl?: string;
     contactName?: string;
     contactEmail?: string;
     contacts?: CampaignContact[];
@@ -45,6 +46,7 @@ export function CampaignMetadataEditor({
     status: campaign.status,
     salesPerson: campaign.salesPerson ?? "",
     campaignManager: campaign.campaignManager ?? "",
+    legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl ?? "",
     contacts:
       campaign.contacts && campaign.contacts.length > 0
         ? campaign.contacts
@@ -61,6 +63,7 @@ export function CampaignMetadataEditor({
       status: campaign.status,
       salesPerson: campaign.salesPerson ?? "",
       campaignManager: campaign.campaignManager ?? "",
+      legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl ?? "",
       contacts:
         campaign.contacts && campaign.contacts.length > 0
           ? campaign.contacts
@@ -87,6 +90,7 @@ export function CampaignMetadataEditor({
           status: form.status,
           salesPerson: form.salesPerson || null,
           campaignManager: form.campaignManager || null,
+          legacyOnboardingDocUrl: form.legacyOnboardingDocUrl || null,
           contacts: form.contacts
             .map((c) => ({ name: c.name.trim(), email: c.email.trim() }))
             .filter((c) => c.name && c.email),
@@ -192,6 +196,20 @@ export function CampaignMetadataEditor({
               onChange={(e) =>
                 setForm({ ...form, campaignManager: e.target.value })
               }
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div className="col-span-2 sm:col-span-3">
+            <label className="block text-xs text-gray-500">
+              Legacy Onboarding Google Doc URL
+            </label>
+            <input
+              type="url"
+              value={form.legacyOnboardingDocUrl}
+              onChange={(e) =>
+                setForm({ ...form, legacyOnboardingDocUrl: e.target.value })
+              }
+              placeholder="https://docs.google.com/..."
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
           </div>
@@ -341,6 +359,19 @@ export function CampaignMetadataEditor({
             <p className="text-sm font-medium text-gray-900">
               {campaign.campaignManager}
             </p>
+          </div>
+        )}
+        {campaign.legacyOnboardingDocUrl && (
+          <div className="col-span-2 sm:col-span-3">
+            <p className="text-xs text-gray-500">Legacy Onboarding Google Doc</p>
+            <a
+              href={campaign.legacyOnboardingDocUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 underline break-all"
+            >
+              {campaign.legacyOnboardingDocUrl}
+            </a>
           </div>
         )}
         {campaign.contacts && campaign.contacts.length > 0 && (

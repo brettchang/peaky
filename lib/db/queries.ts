@@ -220,6 +220,7 @@ function mapCampaign(row: CampaignRelational): Campaign {
     onboardingMessaging: row.onboardingMessaging ?? undefined,
     onboardingDesiredAction: row.onboardingDesiredAction ?? undefined,
     onboardingSubmittedAt: row.onboardingSubmittedAt?.toISOString() ?? undefined,
+    legacyOnboardingDocUrl: row.legacyOnboardingDocUrl ?? undefined,
     onboardingRounds: row.onboardingRounds
       .map(mapOnboardingRound)
       .sort(

@@ -375,6 +375,7 @@ export interface Campaign {
   onboardingMessaging?: string;
   onboardingDesiredAction?: string;
   onboardingSubmittedAt?: string;
+  legacyOnboardingDocUrl?: string;
   placements: Placement[];
   createdAt: string;
 }

@@ -649,6 +649,7 @@ export async function updateCampaignMetadata(
     clientName?: string | null;
     salesPerson?: string | null;
     campaignManager?: string | null;
+    legacyOnboardingDocUrl?: string | null;
     contactName?: string | null;
     contactEmail?: string | null;
     contacts?: CampaignContact[] | null;
@@ -689,6 +690,10 @@ export async function updateCampaignMetadata(
   if (data.status !== undefined) updatePayload.status = data.status;
   if (data.campaignManager !== undefined) {
     updatePayload.campaignManager = data.campaignManager;
+  }
+  if (data.legacyOnboardingDocUrl !== undefined) {
+    const normalized = data.legacyOnboardingDocUrl?.trim() ?? null;
+    updatePayload.legacyOnboardingDocUrl = normalized || null;
   }
   if (data.contactName !== undefined) {
     updatePayload.contactName = data.contactName;

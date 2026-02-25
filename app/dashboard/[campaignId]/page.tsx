@@ -1,7 +1,13 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCampaignById, getClientByCampaignId, getCampaignInvoiceLinks, getPlacementInvoiceLinks } from "@/lib/db";
+import {
+  getCampaignById,
+  getClientByCampaignId,
+  getCampaignInvoiceLinks,
+  getPlacementInvoiceLinks,
+  getSetting,
+} from "@/lib/db";
 import { isXeroConnected } from "@/lib/xero";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdminPlacementList } from "@/components/AdminPlacementList";
@@ -13,6 +19,10 @@ import { CampaignMetadataEditor } from "@/components/CampaignMetadataEditor";
 import { DateRangeScheduler } from "@/components/DateRangeScheduler";
 import { GenerateCopyButton } from "@/components/GenerateCopyButton";
 import { SendOnboardingEmailButton } from "@/components/SendOnboardingEmailButton";
+import {
+  onboardingOverridesSettingKey,
+  parseCampaignOnboardingOverrides,
+} from "@/lib/onboarding-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +39,15 @@ export default async function CampaignDetailPage({
   const campaign = await getCampaignById(campaignId);
   if (!campaign) notFound();
 
-  const [client, xeroStatus, invoiceLinks] = await Promise.all([
+  const [client, xeroStatus, invoiceLinks, onboardingOverridesRaw] = await Promise.all([
     getClientByCampaignId(campaignId),
     isXeroConnected(),
     getCampaignInvoiceLinks(campaignId),
+    getSetting(onboardingOverridesSettingKey(campaignId)),
   ]);
+  const onboardingOverrides = parseCampaignOnboardingOverrides(
+    onboardingOverridesRaw
+  );
 
   // Fetch placement invoice links in parallel
   const placementInvoiceEntries = await Promise.all(
@@ -95,6 +109,7 @@ export default async function CampaignDetailPage({
           status: campaign.status,
           salesPerson: campaign.salesPerson,
           campaignManager: campaign.campaignManager,
+          legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl,
           contactName: campaign.contactName,
           contactEmail: campaign.contactEmail,
           contacts: campaign.contacts,
@@ -119,6 +134,7 @@ export default async function CampaignDetailPage({
         placements={campaign.placements}
         onboardingSubmittedAt={campaign.onboardingSubmittedAt}
         portalUrl={portalUrl}
+        overrides={onboardingOverrides}
       />
 
       {/* Client Onboarding Briefs — per round */}

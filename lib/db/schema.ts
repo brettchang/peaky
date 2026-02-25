@@ -48,6 +48,7 @@ export const campaigns = pgTable(
     onboardingMessaging: text("onboarding_messaging"),
     onboardingDesiredAction: text("onboarding_desired_action"),
     onboardingSubmittedAt: timestamp("onboarding_submitted_at", { withTimezone: true }),
+    legacyOnboardingDocUrl: text("legacy_onboarding_doc_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("campaigns_client_id_idx").on(t.clientId)]
