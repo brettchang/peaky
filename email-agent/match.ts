@@ -2,6 +2,9 @@ import type { DashboardCampaign } from "../lib/types";
 import type { CampaignMatch } from "./types";
 
 function resolveInternalDomains(): string[] {
+  if (process.env.EMAIL_AGENT_ALLOW_INTERNAL_SENDERS === "true") {
+    return [];
+  }
   const raw =
     process.env.EMAIL_AGENT_INTERNAL_DOMAINS?.trim() ||
     process.env.CAMPAIGN_EMAIL_INTERNAL_DOMAINS?.trim() ||

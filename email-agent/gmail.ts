@@ -148,7 +148,18 @@ async function runGwsJson<T>(args: string[]): Promise<T> {
     return parseJsonOutput<T>(stdout);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Google Workspace CLI command failed: ${message}`);
+    const stderr =
+      typeof error === "object" &&
+      error !== null &&
+      "stderr" in error &&
+      typeof (error as { stderr?: unknown }).stderr === "string"
+        ? (error as { stderr: string }).stderr.trim()
+        : "";
+    const hint =
+      " For Railway, GOOGLE_WORKSPACE_CLI_CREDENTIALS_JSON_B64 must contain the exported output of `gws auth export --unmasked`, not just the OAuth client secret JSON.";
+    throw new Error(
+      `Google Workspace CLI command failed: ${message}${stderr ? ` | stderr: ${stderr}` : ""}${hint}`
+    );
   }
 }
 

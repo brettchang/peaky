@@ -23,6 +23,18 @@ This agent is intended to run as a separate always-on worker and should be deplo
 - `CAMPAIGN_EMAIL_GMAIL_USER_ID` (or `CAMPAIGN_EMAIL_GMAIL_ACCOUNT`)
 - `ANTHROPIC_API_KEY`
 
+`GOOGLE_WORKSPACE_CLI_CREDENTIALS_JSON_B64` must be the base64-encoded contents of an exported authenticated credentials file, not the raw Google OAuth client secret.
+
+Example flow:
+
+```bash
+gws auth login -s gmail
+gws auth export --unmasked > /tmp/gws-credentials.json
+base64 -i /tmp/gws-credentials.json | pbcopy
+```
+
+Paste that base64 value into the Railway env var.
+
 ## Recommended Environment Variables
 
 - `EMAIL_AGENT_INTERNAL_DOMAINS=thepeakmediaco.com`
