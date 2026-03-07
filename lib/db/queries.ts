@@ -1,9 +1,10 @@
-import { eq, and, gte, lte, isNotNull } from "drizzle-orm";
+import { eq, and, gte, lte, isNotNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import * as schema from "./schema";
 import type {
   Client,
   Campaign,
+  CampaignManager,
   Placement,
   CopyVersion,
   OnboardingRound,
@@ -22,20 +23,31 @@ import type {
   DayCapacity,
   DateRangeCapacity,
   CampaignContact,
+  CampaignCurrency,
+  CampaignCategory,
+  OnboardingFormType,
 } from "../types";
-import { DAILY_CAPACITY_LIMITS } from "../types";
-import type { CampaignInvoiceLink, PlacementInvoiceLink } from "../xero-types";
+import { DAILY_CAPACITY_LIMITS, isCampaignManager } from "../types";
+import type {
+  CampaignInvoiceLink,
+  PlacementInvoiceLink,
+  DashboardInvoiceStatus,
+  XeroInvoiceStatus,
+} from "../xero-types";
 import { getXeroConnection, fetchXeroInvoice } from "../xero";
 import { extractPlacementMeta } from "../placement-meta";
 
 const BILLING_META_START = "<!-- billing-meta:start -->";
 const BILLING_META_END = "<!-- billing-meta:end -->";
+const CONTROL_PLANE_RETRY_DELAYS_MS = [150, 400];
 
 interface CampaignPortalMeta {
   representingClient?: boolean;
   wantsPeakCopy?: boolean;
   salesPerson?: string;
   contacts?: CampaignContact[];
+  longTermClient?: boolean;
+  complementaryCampaign?: boolean;
 }
 
 function normalizeCampaignContacts(
@@ -51,20 +63,56 @@ function normalizeCampaignContacts(
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function isControlPlaneRequestFailed(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = "message" in error ? String(error.message) : "";
+  const cause =
+    "cause" in error && typeof error.cause === "object" && error.cause !== null
+      ? error.cause
+      : null;
+  const causeMessage = cause && "message" in cause ? String(cause.message) : "";
+  const code = "code" in error ? String(error.code) : "";
+  const causeCode =
+    cause && "code" in cause ? String((cause as { code?: unknown }).code) : "";
+
+  return (
+    message.includes("Control plane request failed") ||
+    causeMessage.includes("Control plane request failed") ||
+    code === "XX000" ||
+    causeCode === "XX000"
+  );
+}
+
+async function withControlPlaneRetry<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        !isControlPlaneRequestFailed(error) ||
+        attempt >= CONTROL_PLANE_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      const delay = CONTROL_PLANE_RETRY_DELAYS_MS[attempt];
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 function extractCampaignPortalMeta(notes?: string | null): {
   cleanNotes: string | undefined;
   meta: CampaignPortalMeta;
 } {
   if (!notes) return { cleanNotes: undefined, meta: {} };
 
-  const start = notes.indexOf(BILLING_META_START);
-  const end = notes.indexOf(BILLING_META_END);
+  const start = notes.lastIndexOf(BILLING_META_START);
+  const end =
+    start === -1 ? -1 : notes.indexOf(BILLING_META_END, start);
   if (start === -1 || end === -1 || end < start) {
     return { cleanNotes: notes, meta: {} };
   }
 
-  const before = notes.slice(0, start).trim();
-  const after = notes.slice(end + BILLING_META_END.length).trim();
   const rawMeta = notes
     .slice(start + BILLING_META_START.length, end)
     .trim();
@@ -76,7 +124,13 @@ function extractCampaignPortalMeta(notes?: string | null): {
     meta = {};
   }
 
-  const cleanNotes = [before, after].filter(Boolean).join("\n\n").trim() || undefined;
+  const cleanNotes =
+    notes
+      .replace(
+        /<!-- billing-meta:start -->[\s\S]*?<!-- billing-meta:end -->/g,
+        ""
+      )
+      .trim() || undefined;
   return { cleanNotes, meta };
 }
 
@@ -96,7 +150,8 @@ function mapOnboardingRound(row: typeof schema.onboardingRounds.$inferSelect): O
   return {
     id: row.id,
     label: row.label ?? undefined,
-    filloutLink: row.filloutLink,
+    formType: (row.formType as OnboardingFormType) ?? "newsletter",
+    formLink: row.formLink,
     complete: row.complete,
     onboardingDocUrl: row.onboardingDocUrl ?? undefined,
     createdAt: row.createdAt.toISOString(),
@@ -107,12 +162,14 @@ function mapBillingOnboarding(
   row: typeof schema.billingOnboarding.$inferSelect
 ): BillingOnboarding {
   return {
-    filloutLink: row.filloutLink,
+    formLink: row.formLink,
     complete: row.complete,
     completedAt: row.completedAt?.toISOString() ?? undefined,
     companyName: row.poNumber ?? undefined,
     billingContactName: row.billingContactName ?? undefined,
     billingContactEmail: row.billingContactEmail ?? undefined,
+    ioSigningContactName: row.ioSigningContactName ?? undefined,
+    ioSigningContactEmail: row.ioSigningContactEmail ?? undefined,
     billingAddress: row.billingAddress ?? undefined,
     poNumber: row.poNumber ?? undefined,
     invoiceCadence: (row.invoiceCadence as InvoiceCadence) ?? undefined,
@@ -134,6 +191,7 @@ function mapPlacement(
     scheduledDate: row.scheduledDate ?? undefined,
     scheduledEndDate: extracted.meta.scheduledEndDate,
     interviewScheduled: extracted.meta.interviewScheduled,
+    committedImpressions: extracted.meta.committedImpressions,
     status: row.status as PlacementStatus,
     currentCopy: row.currentCopy,
     copyVersion: row.copyVersion,
@@ -156,8 +214,9 @@ function mapPlacement(
   };
 }
 
-function canClientViewCopy(status: PlacementStatus): boolean {
-  return (
+function canClientViewCopy(placement: Placement): boolean {
+  const status = placement.status;
+  const statusAllowsCopy =
     status === "Peak Team Review Complete" ||
     status === "Sent for Approval" ||
     status === "Approved" ||
@@ -169,12 +228,19 @@ function canClientViewCopy(status: PlacementStatus): boolean {
     status === "Questions In Review" ||
     status === "Client Reviewing Interview" ||
     status === "Revising for Client" ||
-    status === "Approved Interview"
-  );
+    status === "Approved Interview";
+
+  // Keep approved-and-scheduled copy visible to clients even if status was moved later.
+  const approvedAndScheduled =
+    Boolean(placement.scheduledDate) &&
+    Boolean(placement.linkToPlacement?.trim()) &&
+    placement.currentCopy.trim().length > 0;
+
+  return statusAllowsCopy || approvedAndScheduled;
 }
 
 function maskPlacementForClient(placement: Placement): Placement {
-  if (canClientViewCopy(placement.status)) {
+  if (canClientViewCopy(placement)) {
     return placement;
   }
 
@@ -196,6 +262,86 @@ type CampaignRelational = typeof schema.campaigns.$inferSelect & {
   campaignInvoices?: (typeof schema.campaignInvoices.$inferSelect)[];
 };
 
+function isMissingBillingIoColumnError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = "message" in error ? String(error.message) : "";
+  const causeMessage =
+    "cause" in error && typeof error.cause === "object" && error.cause !== null
+      ? "message" in error.cause
+        ? String(error.cause.message)
+        : ""
+      : "";
+  return (
+    message.includes("io_signing_contact_name") ||
+    message.includes("io_signing_contact_email") ||
+    causeMessage.includes("io_signing_contact_name") ||
+    causeMessage.includes("io_signing_contact_email")
+  );
+}
+
+function isMissingDashboardStatusColumnError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = "message" in error ? String(error.message) : "";
+  const causeMessage =
+    "cause" in error && typeof error.cause === "object" && error.cause !== null
+      ? "message" in error.cause
+        ? String(error.cause.message)
+        : ""
+      : "";
+  return (
+    message.includes("dashboard_status") ||
+    causeMessage.includes("dashboard_status")
+  );
+}
+
+function isMissingFormLinkColumnError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = "message" in error ? String(error.message) : "";
+  const causeMessage =
+    "cause" in error && typeof error.cause === "object" && error.cause !== null
+      ? "message" in error.cause
+        ? String(error.cause.message)
+        : ""
+      : "";
+  return (
+    message.includes("form_link") ||
+    message.includes("fillout_link") ||
+    causeMessage.includes("form_link") ||
+    causeMessage.includes("fillout_link")
+  );
+}
+
+function mapXeroToDashboardStatus(status?: XeroInvoiceStatus): DashboardInvoiceStatus {
+  switch (status) {
+    case "DRAFT":
+    case "SUBMITTED":
+      return "DRAFT";
+    case "PAID":
+      return "PAID";
+    default:
+      return "AWAITING_PAYMENT";
+  }
+}
+
+function withMissingBillingOnboarding<
+  T extends Omit<CampaignRelational, "billingOnboarding">
+>(rows: T[]): CampaignRelational[] {
+  return rows.map((row) => ({
+    ...row,
+    billingOnboarding: null,
+  }));
+}
+
+function withMissingCampaignForms<
+  T extends Omit<CampaignRelational, "onboardingRounds" | "billingOnboarding">
+>(rows: T[]): CampaignRelational[] {
+  return rows.map((row) => ({
+    ...row,
+    onboardingRounds: [],
+    billingOnboarding: null,
+  }));
+}
+
 function mapCampaign(row: CampaignRelational): Campaign {
   const extracted = extractCampaignPortalMeta(row.notes);
   const contacts =
@@ -206,21 +352,35 @@ function mapCampaign(row: CampaignRelational): Campaign {
   return {
     id: row.id,
     name: row.name,
+    portalId: row.portalId,
     clientId: row.clientId,
-    status: row.status as CampaignStatus,
+    category: (row.category as CampaignCategory) ?? "Standard",
+    status: normalizeCampaignStatus(row.status),
+    longTermClient: extracted.meta.longTermClient ?? undefined,
+    complementaryCampaign: extracted.meta.complementaryCampaign ?? undefined,
     salesPerson: extracted.meta.salesPerson ?? undefined,
-    campaignManager: row.campaignManager ?? undefined,
+    campaignManager: normalizeCampaignManager(row.campaignManager),
+    currency: (row.currency as CampaignCurrency) ?? "CAD",
+    taxEligible: row.taxEligible,
     contactName: row.contactName ?? undefined,
     contactEmail: row.contactEmail ?? undefined,
     contacts,
     adLineItems: (row.adLineItems as AdLineItem[]) ?? undefined,
     placementsDescription: row.placementsDescription ?? undefined,
     performanceTableUrl: row.performanceTableUrl ?? undefined,
-    notes: row.notes ?? undefined,
-    onboardingMessaging: row.onboardingMessaging ?? undefined,
-    onboardingDesiredAction: row.onboardingDesiredAction ?? undefined,
+    notes: extracted.cleanNotes ?? undefined,
+    onboardingCampaignObjective: row.onboardingCampaignObjective ?? undefined,
+    onboardingKeyMessage: row.onboardingKeyMessage ?? undefined,
+    onboardingTalkingPoints: row.onboardingTalkingPoints ?? undefined,
+    onboardingCallToAction: row.onboardingCallToAction ?? undefined,
+    onboardingTargetAudience: row.onboardingTargetAudience ?? undefined,
+    onboardingToneGuidelines: row.onboardingToneGuidelines ?? undefined,
     onboardingSubmittedAt: row.onboardingSubmittedAt?.toISOString() ?? undefined,
     legacyOnboardingDocUrl: row.legacyOnboardingDocUrl ?? undefined,
+    pandadocDocumentId: row.pandadocDocumentId ?? undefined,
+    pandadocStatus: row.pandadocStatus ?? undefined,
+    pandadocDocumentUrl: row.pandadocDocumentUrl ?? undefined,
+    pandadocCreatedAt: row.pandadocCreatedAt?.toISOString() ?? undefined,
     onboardingRounds: row.onboardingRounds
       .map(mapOnboardingRound)
       .sort(
@@ -242,12 +402,48 @@ function mapCampaign(row: CampaignRelational): Campaign {
   };
 }
 
+function normalizeCampaignStatus(status: string): CampaignStatus {
+  if (status === "Waiting on Onboarding") return "Onboarding to be sent";
+  if (status === "Onboarding Form Complete") return "Active";
+  return status as CampaignStatus;
+}
+
+function normalizeCampaignManager(
+  campaignManager: string | null
+): CampaignManager {
+  return campaignManager && isCampaignManager(campaignManager)
+    ? campaignManager
+    : "Brett";
+}
+
 async function getCampaignIdsForClient(clientId: string): Promise<string[]> {
   const rows = await db
     .select({ id: schema.campaigns.id })
     .from(schema.campaigns)
     .where(eq(schema.campaigns.clientId, clientId));
   return rows.map((r) => r.id);
+}
+
+async function getCampaignByPortalId(
+  portalId: string
+): Promise<(typeof schema.campaigns.$inferSelect & { client: typeof schema.clients.$inferSelect }) | null> {
+  const row = await withControlPlaneRetry(() =>
+    db.query.campaigns.findFirst({
+      where: eq(schema.campaigns.portalId, portalId),
+      with: { client: true },
+    })
+  );
+  return row ?? null;
+}
+
+async function getSettingRow(
+  key: string
+): Promise<typeof schema.appSettings.$inferSelect | undefined> {
+  return withControlPlaneRetry(() =>
+    db.query.appSettings.findFirst({
+      where: eq(schema.appSettings.key, key),
+    })
+  );
 }
 
 function mapClient(
@@ -267,28 +463,109 @@ function mapClient(
 export async function getClientByPortalId(
   portalId: string
 ): Promise<Client | null> {
-  const row = await db.query.clients.findFirst({
+  const campaignRow = await getCampaignByPortalId(portalId);
+  if (campaignRow) {
+    return {
+      id: campaignRow.client.id,
+      name: campaignRow.client.name,
+      portalId: campaignRow.portalId,
+      campaignIds: [campaignRow.id],
+    };
+  }
+
+  const legacyClient = await db.query.clients.findFirst({
     where: eq(schema.clients.portalId, portalId),
   });
-  if (!row) return null;
-  const campaignIds = await getCampaignIdsForClient(row.id);
-  return mapClient(row, campaignIds);
+  if (!legacyClient) return null;
+
+  const mostRecentCampaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.clientId, legacyClient.id),
+    orderBy: (campaigns, { desc }) => [desc(campaigns.createdAt)],
+  });
+  if (!mostRecentCampaign) {
+    return mapClient(legacyClient, []);
+  }
+
+  return {
+    id: legacyClient.id,
+    name: legacyClient.name,
+    portalId: mostRecentCampaign.portalId,
+    campaignIds: [mostRecentCampaign.id],
+  };
 }
 
 export async function getCampaignById(
   campaignId: string
 ): Promise<Campaign | null> {
-  const row = await db.query.campaigns.findFirst({
-    where: eq(schema.campaigns.id, campaignId),
-    with: {
-      placements: {
-        with: { revisionHistory: true },
+  let row: CampaignRelational | null = null;
+  try {
+    row = (await db.query.campaigns.findFirst({
+      where: eq(schema.campaigns.id, campaignId),
+      with: {
+        placements: {
+          with: { revisionHistory: true },
+        },
+        onboardingRounds: true,
+        billingOnboarding: true,
       },
-      onboardingRounds: true,
-      billingOnboarding: true,
-      campaignInvoices: true,
-    },
-  });
+    })) as CampaignRelational | null;
+  } catch (error) {
+    if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRow = await db.query.campaigns.findFirst({
+          where: eq(schema.campaigns.id, campaignId),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+          },
+        });
+        row = fallbackRow
+          ? withMissingBillingOnboarding([
+              fallbackRow as Omit<CampaignRelational, "billingOnboarding">,
+            ])[0]
+          : null;
+      } catch (fallbackError) {
+        if (!isMissingFormLinkColumnError(fallbackError)) throw fallbackError;
+        const legacyRow = await db.query.campaigns.findFirst({
+          where: eq(schema.campaigns.id, campaignId),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+          },
+        });
+        row = legacyRow
+          ? withMissingCampaignForms([
+              legacyRow as Omit<
+                CampaignRelational,
+                "onboardingRounds" | "billingOnboarding"
+              >,
+            ])[0]
+          : null;
+      }
+    } else if (isMissingFormLinkColumnError(error)) {
+      const legacyRow = await db.query.campaigns.findFirst({
+        where: eq(schema.campaigns.id, campaignId),
+        with: {
+          placements: {
+            with: { revisionHistory: true },
+          },
+        },
+      });
+      row = legacyRow
+        ? withMissingCampaignForms([
+            legacyRow as Omit<
+              CampaignRelational,
+              "onboardingRounds" | "billingOnboarding"
+            >,
+          ])[0]
+        : null;
+    } else {
+      throw error;
+    }
+  }
   if (!row) return null;
   return mapCampaign(row);
 }
@@ -338,16 +615,83 @@ export async function getCampaignsForClient(
   const client = await getClientByPortalId(portalId);
   if (!client) return null;
 
-  const campaignRows = await db.query.campaigns.findMany({
-    where: eq(schema.campaigns.clientId, client.id),
-    with: {
-      placements: {
-        with: { revisionHistory: true },
+  if (client.campaignIds.length === 1) {
+    const campaign = await getCampaignById(client.campaignIds[0]);
+    if (!campaign) return null;
+    return {
+      client,
+      campaigns: [
+        {
+          ...campaign,
+          placements: campaign.placements.map(maskPlacementForClient),
+        },
+      ],
+    };
+  }
+
+  let campaignRows: CampaignRelational[] = [];
+  try {
+    campaignRows = (await db.query.campaigns.findMany({
+      where: eq(schema.campaigns.clientId, client.id),
+      with: {
+        placements: {
+          with: { revisionHistory: true },
+        },
+        onboardingRounds: true,
+        billingOnboarding: true,
       },
-      onboardingRounds: true,
-      billingOnboarding: true,
-    },
-  });
+    })) as CampaignRelational[];
+  } catch (error) {
+    if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRows = await db.query.campaigns.findMany({
+          where: eq(schema.campaigns.clientId, client.id),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+          },
+        });
+        campaignRows = withMissingBillingOnboarding(
+          fallbackRows as Omit<CampaignRelational, "billingOnboarding">[]
+        );
+      } catch (fallbackError) {
+        if (!isMissingFormLinkColumnError(fallbackError)) throw fallbackError;
+        const legacyRows = await db.query.campaigns.findMany({
+          where: eq(schema.campaigns.clientId, client.id),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+          },
+        });
+        campaignRows = withMissingCampaignForms(
+          legacyRows as Omit<
+            CampaignRelational,
+            "onboardingRounds" | "billingOnboarding"
+          >[]
+        );
+      }
+    } else if (isMissingFormLinkColumnError(error)) {
+      const legacyRows = await db.query.campaigns.findMany({
+        where: eq(schema.campaigns.clientId, client.id),
+        with: {
+          placements: {
+            with: { revisionHistory: true },
+          },
+        },
+      });
+      campaignRows = withMissingCampaignForms(
+        legacyRows as Omit<
+          CampaignRelational,
+          "onboardingRounds" | "billingOnboarding"
+        >[]
+      );
+    } else {
+      throw error;
+    }
+  }
 
   return {
     client,
@@ -364,21 +708,90 @@ export async function getCampaignsForClient(
 export async function getAllCampaignsWithClients(): Promise<
   DashboardCampaign[]
 > {
-  const campaignRows = await db.query.campaigns.findMany({
-    with: {
-      client: true,
-      placements: {
-        with: { revisionHistory: true },
+  let campaignRows: (CampaignRelational & {
+    client: typeof schema.clients.$inferSelect;
+  })[] = [];
+  try {
+    campaignRows = (await db.query.campaigns.findMany({
+      with: {
+        client: true,
+        placements: {
+          with: { revisionHistory: true },
+        },
+        onboardingRounds: true,
+        billingOnboarding: true,
       },
-      onboardingRounds: true,
-      billingOnboarding: true,
-    },
-  });
+    })) as (CampaignRelational & {
+      client: typeof schema.clients.$inferSelect;
+    })[];
+  } catch (error) {
+    if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRows = await db.query.campaigns.findMany({
+          with: {
+            client: true,
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+          },
+        });
+        campaignRows = withMissingBillingOnboarding(
+          fallbackRows as (Omit<CampaignRelational, "billingOnboarding"> & {
+            client: typeof schema.clients.$inferSelect;
+          })[]
+        ) as (CampaignRelational & {
+          client: typeof schema.clients.$inferSelect;
+        })[];
+      } catch (fallbackError) {
+        if (!isMissingFormLinkColumnError(fallbackError)) throw fallbackError;
+        const legacyRows = await db.query.campaigns.findMany({
+          with: {
+            client: true,
+            placements: {
+              with: { revisionHistory: true },
+            },
+          },
+        });
+        campaignRows = withMissingCampaignForms(
+          legacyRows as (Omit<
+            CampaignRelational,
+            "onboardingRounds" | "billingOnboarding"
+          > & {
+            client: typeof schema.clients.$inferSelect;
+          })[]
+        ) as (CampaignRelational & {
+          client: typeof schema.clients.$inferSelect;
+        })[];
+      }
+    } else if (isMissingFormLinkColumnError(error)) {
+      const legacyRows = await db.query.campaigns.findMany({
+        with: {
+          client: true,
+          placements: {
+            with: { revisionHistory: true },
+          },
+        },
+      });
+      campaignRows = withMissingCampaignForms(
+        legacyRows as (Omit<
+          CampaignRelational,
+          "onboardingRounds" | "billingOnboarding"
+        > & {
+          client: typeof schema.clients.$inferSelect;
+        })[]
+      ) as (CampaignRelational & {
+        client: typeof schema.clients.$inferSelect;
+      })[];
+    } else {
+      throw error;
+    }
+  }
 
   return campaignRows.map((row) => ({
     campaign: mapCampaign(row),
     clientName: row.client.name,
-    clientPortalId: row.client.portalId,
+    clientPortalId: row.portalId,
   }));
 }
 
@@ -387,6 +800,19 @@ export async function getPlacementsForClient(
 ): Promise<{ client: Client; placements: ClientPlacementRow[] } | null> {
   const client = await getClientByPortalId(portalId);
   if (!client) return null;
+
+  if (client.campaignIds.length === 1) {
+    const campaign = await getCampaignById(client.campaignIds[0]);
+    if (!campaign) return null;
+    return {
+      client,
+      placements: campaign.placements.map((placement) => ({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        placement: maskPlacementForClient(placement),
+      })),
+    };
+  }
 
   const campaignRows = await db.query.campaigns.findMany({
     where: eq(schema.campaigns.clientId, client.id),
@@ -458,8 +884,12 @@ export function getClientByCampaignId(
     });
     if (!clientRow) return null;
 
-    const campaignIds = await getCampaignIdsForClient(clientRow.id);
-    return mapClient(clientRow, campaignIds);
+    return {
+      id: clientRow.id,
+      name: clientRow.name,
+      portalId: campaignRow.portalId,
+      campaignIds: [campaignRow.id],
+    };
   })();
 }
 
@@ -478,9 +908,36 @@ export async function getAllClients(): Promise<Client[]> {
 export async function getCampaignInvoiceLinks(
   campaignId: string
 ): Promise<CampaignInvoiceLink[]> {
-  const rows = await db.query.campaignInvoices.findMany({
-    where: eq(schema.campaignInvoices.campaignId, campaignId),
-  });
+  let rows: Array<{
+    id: string;
+    campaignId: string;
+    xeroInvoiceId: string;
+    dashboardStatus?: string;
+    linkedAt: Date;
+    notes: string | null;
+  }> = [];
+  let hasDashboardStatusColumn = true;
+
+  try {
+    rows = await db.query.campaignInvoices.findMany({
+      where: eq(schema.campaignInvoices.campaignId, campaignId),
+    });
+  } catch (error) {
+    if (!isMissingDashboardStatusColumnError(error)) throw error;
+    hasDashboardStatusColumn = false;
+    const legacy = await db.execute(sql`
+      select id, campaign_id, xero_invoice_id, linked_at, notes
+      from campaign_invoices
+      where campaign_id = ${campaignId}
+    `);
+    rows = (legacy.rows as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      xeroInvoiceId: String(row.xero_invoice_id),
+      linkedAt: new Date(String(row.linked_at)),
+      notes: (row.notes as string | null) ?? null,
+    }));
+  }
 
   const conn = await getXeroConnection();
   const links: CampaignInvoiceLink[] = [];
@@ -490,6 +947,9 @@ export async function getCampaignInvoiceLinks(
       id: row.id,
       campaignId: row.campaignId,
       xeroInvoiceId: row.xeroInvoiceId,
+      dashboardStatus: hasDashboardStatusColumn
+        ? (row.dashboardStatus as DashboardInvoiceStatus)
+        : "AWAITING_PAYMENT",
       linkedAt: row.linkedAt.toISOString(),
       notes: row.notes ?? undefined,
     };
@@ -500,7 +960,12 @@ export async function getCampaignInvoiceLinks(
         conn.accessToken,
         row.xeroInvoiceId
       );
-      if (invoice) link.invoice = invoice;
+      if (invoice) {
+        link.invoice = invoice;
+        if (!hasDashboardStatusColumn) {
+          link.dashboardStatus = mapXeroToDashboardStatus(invoice.status);
+        }
+      }
     }
 
     links.push(link);
@@ -546,45 +1011,113 @@ export async function getPlacementInvoiceLinks(
 export interface InvoiceLinkWithCampaign extends CampaignInvoiceLink {
   campaignName: string;
   clientName: string;
+  campaignTaxEligible: boolean;
+  campaignBillingSpecialInstructions?: string;
 }
 
 export async function getAllInvoiceLinks(): Promise<InvoiceLinkWithCampaign[]> {
-  const rows = await db.query.campaignInvoices.findMany({
-    with: {
-      campaign: {
-        with: { client: true },
-      },
-    },
-  });
-
-  type RowWithCampaign = (typeof rows)[number] & {
-    campaign: typeof schema.campaigns.$inferSelect & {
-      client: typeof schema.clients.$inferSelect;
+  type RowWithCampaign = {
+    id: string;
+    campaignId: string;
+    xeroInvoiceId: string;
+    dashboardStatus?: string;
+    linkedAt: Date;
+    notes: string | null;
+    campaign?: {
+      name: string;
+      taxEligible?: boolean;
+      billingOnboarding?: {
+        specialInstructions?: string | null;
+      };
+      client?: {
+        name: string;
+      };
     };
   };
+
+  let rows: RowWithCampaign[] = [];
+  let hasDashboardStatusColumn = true;
+
+  try {
+    rows = (await db.query.campaignInvoices.findMany({
+      with: {
+        campaign: {
+          with: { client: true, billingOnboarding: true },
+        },
+      },
+    })) as RowWithCampaign[];
+  } catch (error) {
+    if (!isMissingDashboardStatusColumnError(error)) throw error;
+    hasDashboardStatusColumn = false;
+    const legacy = await db.execute(sql`
+      select
+        ci.id,
+        ci.campaign_id,
+        ci.xero_invoice_id,
+        ci.linked_at,
+        ci.notes,
+        c.name as campaign_name,
+        cl.name as client_name,
+        c.tax_eligible as campaign_tax_eligible,
+        bo.special_instructions as campaign_billing_special_instructions
+      from campaign_invoices ci
+      left join campaigns c on c.id = ci.campaign_id
+      left join clients cl on cl.id = c.client_id
+      left join billing_onboarding bo on bo.campaign_id = c.id
+    `);
+    rows = (legacy.rows as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      xeroInvoiceId: String(row.xero_invoice_id),
+      linkedAt: new Date(String(row.linked_at)),
+      notes: (row.notes as string | null) ?? null,
+      campaign: {
+        name: String(row.campaign_name ?? ""),
+        taxEligible: Boolean(row.campaign_tax_eligible),
+        billingOnboarding: {
+          specialInstructions:
+            (row.campaign_billing_special_instructions as string | null) ??
+            null,
+        },
+        client: {
+          name: String(row.client_name ?? ""),
+        },
+      },
+    }));
+  }
 
   const conn = await getXeroConnection();
   const links: InvoiceLinkWithCampaign[] = [];
 
-  for (const row of rows) {
-    const r = row as RowWithCampaign;
+  for (const r of rows) {
     const link: InvoiceLinkWithCampaign = {
       id: r.id,
       campaignId: r.campaignId,
       xeroInvoiceId: r.xeroInvoiceId,
+      dashboardStatus: hasDashboardStatusColumn
+        ? (r.dashboardStatus as DashboardInvoiceStatus)
+        : "AWAITING_PAYMENT",
       linkedAt: r.linkedAt.toISOString(),
       notes: r.notes ?? undefined,
       campaignName: r.campaign?.name ?? "",
       clientName: r.campaign?.client?.name ?? "",
+      campaignTaxEligible: r.campaign?.taxEligible ?? false,
+      campaignBillingSpecialInstructions:
+        r.campaign?.billingOnboarding?.specialInstructions ?? undefined,
     };
 
     if (conn) {
       const invoice = await fetchXeroInvoice(
         conn.tenantId,
         conn.accessToken,
-        row.xeroInvoiceId
+        r.xeroInvoiceId
       );
-      if (invoice) link.invoice = invoice;
+      if (invoice) {
+        link.invoice = invoice;
+        if (!hasDashboardStatusColumn) {
+          link.dashboardStatus = mapXeroToDashboardStatus(invoice.status);
+        }
+      }
     }
 
     links.push(link);
@@ -593,13 +1126,163 @@ export async function getAllInvoiceLinks(): Promise<InvoiceLinkWithCampaign[]> {
   return links;
 }
 
+export async function getInvoiceLinkById(
+  invoiceLinkId: string
+): Promise<InvoiceLinkWithCampaign | null> {
+  type Row = {
+    id: string;
+    campaignId: string;
+    xeroInvoiceId: string;
+    dashboardStatus?: string;
+    linkedAt: Date;
+    notes: string | null;
+    campaign?: {
+      name: string;
+      taxEligible?: boolean;
+      billingOnboarding?: {
+        specialInstructions?: string | null;
+      };
+      client?: { name: string };
+    };
+  };
+
+  let row: Row | null = null;
+  let hasDashboardStatusColumn = true;
+
+  try {
+    row = (await db.query.campaignInvoices.findFirst({
+      where: eq(schema.campaignInvoices.id, invoiceLinkId),
+      with: {
+        campaign: {
+          with: { client: true, billingOnboarding: true },
+        },
+      },
+    })) as Row | null;
+  } catch (error) {
+    if (!isMissingDashboardStatusColumnError(error)) throw error;
+    hasDashboardStatusColumn = false;
+    const legacy = await db.execute(sql`
+      select
+        ci.id,
+        ci.campaign_id,
+        ci.xero_invoice_id,
+        ci.linked_at,
+        ci.notes,
+        c.name as campaign_name,
+        cl.name as client_name,
+        c.tax_eligible as campaign_tax_eligible,
+        bo.special_instructions as campaign_billing_special_instructions
+      from campaign_invoices ci
+      left join campaigns c on c.id = ci.campaign_id
+      left join clients cl on cl.id = c.client_id
+      left join billing_onboarding bo on bo.campaign_id = c.id
+      where ci.id = ${invoiceLinkId}
+      limit 1
+    `);
+    const first = (legacy.rows as Array<Record<string, unknown>>)[0];
+    if (first) {
+      row = {
+        id: String(first.id),
+        campaignId: String(first.campaign_id),
+        xeroInvoiceId: String(first.xero_invoice_id),
+        linkedAt: new Date(String(first.linked_at)),
+        notes: (first.notes as string | null) ?? null,
+        campaign: {
+          name: String(first.campaign_name ?? ""),
+          taxEligible: Boolean(first.campaign_tax_eligible),
+          billingOnboarding: {
+            specialInstructions:
+              (first.campaign_billing_special_instructions as string | null) ??
+              null,
+          },
+          client: { name: String(first.client_name ?? "") },
+        },
+      };
+    }
+  }
+
+  if (!row?.campaign?.client) return null;
+
+  const link: InvoiceLinkWithCampaign = {
+    id: row.id,
+    campaignId: row.campaignId,
+    xeroInvoiceId: row.xeroInvoiceId,
+    dashboardStatus: hasDashboardStatusColumn
+      ? (row.dashboardStatus as DashboardInvoiceStatus)
+      : "AWAITING_PAYMENT",
+    linkedAt: row.linkedAt.toISOString(),
+    notes: row.notes ?? undefined,
+    campaignName: row.campaign.name,
+    clientName: row.campaign.client.name,
+    campaignTaxEligible: row.campaign.taxEligible ?? false,
+    campaignBillingSpecialInstructions:
+      row.campaign.billingOnboarding?.specialInstructions ?? undefined,
+  };
+
+  const conn = await getXeroConnection();
+  if (conn) {
+    const invoice = await fetchXeroInvoice(
+      conn.tenantId,
+      conn.accessToken,
+      row.xeroInvoiceId
+    );
+    if (invoice) {
+      link.invoice = invoice;
+      if (!hasDashboardStatusColumn) {
+        link.dashboardStatus = mapXeroToDashboardStatus(invoice.status);
+      }
+    }
+  }
+
+  return link;
+}
+
 // ─── App settings queries ────────────────────────────────────
 
 export async function getSetting(key: string): Promise<string | null> {
-  const row = await db.query.appSettings.findFirst({
-    where: eq(schema.appSettings.key, key),
-  });
+  const row = await getSettingRow(key);
   return row?.value ?? null;
+}
+
+export interface ScheduledPlacementRow {
+  campaignId: string;
+  campaignName: string;
+  clientName: string;
+  placementId: string;
+  placementName: string;
+  placementType: PlacementType;
+  publication: Publication;
+  scheduledDate: string;
+  status: PlacementStatus;
+  currentCopy: string;
+}
+
+export async function getPlacementsScheduledOn(
+  date: string
+): Promise<ScheduledPlacementRow[]> {
+  const rows = await db.query.placements.findMany({
+    where: eq(schema.placements.scheduledDate, date),
+    with: {
+      campaign: {
+        with: {
+          client: true,
+        },
+      },
+    },
+  });
+
+  return rows.map((row) => ({
+    campaignId: row.campaignId,
+    campaignName: row.campaign.name,
+    clientName: row.campaign.client.name,
+    placementId: row.id,
+    placementName: row.name,
+    placementType: row.type as PlacementType,
+    publication: row.publication as Publication,
+    scheduledDate: row.scheduledDate!,
+    status: row.status as PlacementStatus,
+    currentCopy: row.currentCopy,
+  }));
 }
 
 // ─── Capacity / scheduling queries ──────────────────────────
