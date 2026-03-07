@@ -11,8 +11,8 @@ import { isInternalEmail, matchSenderToCampaigns } from "./match";
 import { generateDraftReply } from "./agent";
 import { getAllCampaignsWithClients, getSetting } from "../lib/db";
 import { upsertSetting } from "../lib/db";
-import { sendSlackNotification } from "../lib/slack";
-import { buildEmailDraftReadyNotification } from "../lib/slack-events";
+import { sendSlackNotification } from "./slack";
+import { buildEmailDraftReadyNotification } from "./slack-events";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 300_000);
