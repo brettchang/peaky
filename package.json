@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "mcp:start": "tsx mcp-server/index.ts",
+    "mcp:dev": "tsx watch mcp-server/index.ts",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -15,10 +17,13 @@
     "migrate:notion": "tsx scripts/migrate-notion.ts",
     "migrate:notion:copy:dry": "tsx scripts/migrate-notion-copy.ts --dry-run",
     "migrate:notion:copy": "tsx scripts/migrate-notion-copy.ts",
-    "migrate:notion:copy:force": "tsx scripts/migrate-notion-copy.ts --force"
+    "migrate:notion:copy:force": "tsx scripts/migrate-notion-copy.ts --force",
+    "email-agent:start": "tsx email-agent/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@googleworkspace/cli": "^0.7.0",
+    "@modelcontextprotocol/sdk": "^1.19.0",
     "@tiptap/extension-link": "^3.20.0",
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",
@@ -26,14 +31,17 @@
     "@vercel/blob": "^2.3.0",
     "@vercel/postgres": "^0.10.0",
     "drizzle-orm": "^0.45.1",
+    "express": "^5.1.0",
     "nanoid": "^5.1.6",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
     "tiptap-markdown": "^0.9.0",
-    "xero-node": "^13.4.0"
+    "xero-node": "^13.4.0",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
