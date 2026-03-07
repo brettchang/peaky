@@ -7,7 +7,15 @@ import type { EmailMessage, EmailThread } from "./types";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_GWS_LOCAL_BIN = "node_modules/.bin/gws";
+const GWS_RUNTIME_HOME = "/tmp/gws-home";
+const GWS_XDG_CONFIG_HOME = path.join(GWS_RUNTIME_HOME, ".config");
+const GWS_CONFIG_DIR = path.join(GWS_XDG_CONFIG_HOME, "gws");
 const GWS_CREDENTIALS_FILE = "/tmp/gws/credentials.json";
+const GWS_PLAINTEXT_CREDENTIALS_FILE = path.join(
+  GWS_CONFIG_DIR,
+  "credentials.json"
+);
+const GWS_CLIENT_SECRET_FILE = path.join(GWS_CONFIG_DIR, "client_secret.json");
 const DEFAULT_UNREAD_QUERY = "is:unread";
 const DEFAULT_MAX_RESULTS = 20;
 
@@ -60,6 +68,16 @@ async function resolveGwsRuntimeConfig(): Promise<{
   env: NodeJS.ProcessEnv;
 }> {
   const env: NodeJS.ProcessEnv = { ...process.env };
+
+  if (isHostedRuntime()) {
+    await mkdir(GWS_RUNTIME_HOME, { recursive: true });
+    await mkdir(GWS_XDG_CONFIG_HOME, { recursive: true });
+    await mkdir(GWS_CONFIG_DIR, { recursive: true });
+    env.HOME = GWS_RUNTIME_HOME;
+    env.XDG_CONFIG_HOME = GWS_XDG_CONFIG_HOME;
+    env.GOOGLE_WORKSPACE_CLI_CONFIG_DIR = GWS_CONFIG_DIR;
+  }
+
   await ensureGwsCredentialsFromEnv(env);
 
   const explicitBin = process.env.GOOGLE_WORKSPACE_CLI_BIN?.trim();
@@ -88,6 +106,7 @@ async function ensureGwsCredentialsFromEnv(
 ): Promise<void> {
   if (gwsCredentialsFilePath) {
     env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = gwsCredentialsFilePath;
+    env.GOOGLE_APPLICATION_CREDENTIALS = gwsCredentialsFilePath;
   }
   if (gwsRuntimePrepared) return;
 
@@ -127,13 +146,44 @@ async function ensureGwsCredentialsFromEnv(
   }
 
   await mkdir(path.dirname(GWS_CREDENTIALS_FILE), { recursive: true });
+  await mkdir(GWS_CONFIG_DIR, { recursive: true });
   await writeFile(GWS_CREDENTIALS_FILE, decoded, {
     encoding: "utf8",
     mode: 0o600,
   });
+  await writeFile(GWS_PLAINTEXT_CREDENTIALS_FILE, decoded, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+
+  const clientId = process.env.GOOGLE_WORKSPACE_CLI_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_WORKSPACE_CLI_CLIENT_SECRET?.trim();
+  if (clientId && clientSecret) {
+    await writeFile(
+      GWS_CLIENT_SECRET_FILE,
+      JSON.stringify(
+        {
+          installed: {
+            client_id: clientId,
+            client_secret: clientSecret,
+            auth_uri: "https://accounts.google.com/o/oauth2/auth",
+            token_uri: "https://oauth2.googleapis.com/token",
+            redirect_uris: ["http://localhost"],
+          },
+        },
+        null,
+        2
+      ),
+      {
+        encoding: "utf8",
+        mode: 0o600,
+      }
+    );
+  }
 
   gwsCredentialsFilePath = GWS_CREDENTIALS_FILE;
   env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = gwsCredentialsFilePath;
+  env.GOOGLE_APPLICATION_CREDENTIALS = gwsCredentialsFilePath;
   gwsRuntimePrepared = true;
 }
 
@@ -155,12 +205,27 @@ async function runGwsJson<T>(args: string[]): Promise<T> {
       typeof (error as { stderr?: unknown }).stderr === "string"
         ? (error as { stderr: string }).stderr.trim()
         : "";
+    const stdout =
+      typeof error === "object" &&
+      error !== null &&
+      "stdout" in error &&
+      typeof (error as { stdout?: unknown }).stdout === "string"
+        ? (error as { stdout: string }).stdout.trim()
+        : "";
     const hint =
       " For Railway, GOOGLE_WORKSPACE_CLI_CREDENTIALS_JSON_B64 must contain the exported output of `gws auth export --unmasked`, not just the OAuth client secret JSON.";
     throw new Error(
-      `Google Workspace CLI command failed: ${message}${stderr ? ` | stderr: ${stderr}` : ""}${hint}`
+      `Google Workspace CLI command failed: ${message}${stderr ? ` | stderr: ${stderr}` : ""}${stdout ? ` | stdout: ${stdout}` : ""}${hint}`
     );
   }
+}
+
+function isHostedRuntime(): boolean {
+  return Boolean(
+    process.env.RAILWAY_ENVIRONMENT ||
+      process.env.RAILWAY_PROJECT_ID ||
+      process.env.VERCEL === "1"
+  );
 }
 
 function parseJsonOutput<T>(stdout: string): T {
