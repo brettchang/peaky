@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getCampaignById, getCapacityForDateRange, getAllCampaignsWithClients } from "../lib/db";
 import { buildCampaignContext, buildCapacityContext, loadKnowledgeBase } from "./context";
 import type { CampaignMatch, EmailThread } from "./types";
+import {
+  getAllCampaignsWithClientsForEmailAgent,
+  getCampaignByIdForEmailAgent,
+} from "./db";
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
@@ -68,13 +71,13 @@ async function handleToolCall(
       return buildCapacityContext(input.start_date, input.end_date);
     }
     case "lookup_campaign": {
-      const campaign = await getCampaignById(input.campaign_id);
+      const campaign = await getCampaignByIdForEmailAgent(input.campaign_id);
       if (!campaign) return `Campaign ${input.campaign_id} not found.`;
       return JSON.stringify(campaign, null, 2);
     }
     case "list_campaigns_for_client": {
       const { matchSenderToCampaigns } = await import("./match");
-      const allCampaigns = await getAllCampaignsWithClients();
+      const allCampaigns = await getAllCampaignsWithClientsForEmailAgent();
       const matches = matchSenderToCampaigns(input.client_email, allCampaigns);
       if (matches.length === 0) {
         return `No campaigns found for ${input.client_email}.`;

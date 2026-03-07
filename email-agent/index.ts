@@ -9,10 +9,11 @@ import {
 } from "./gmail";
 import { isInternalEmail, matchSenderToCampaigns } from "./match";
 import { generateDraftReply } from "./agent";
-import { getAllCampaignsWithClients, getSetting } from "../lib/db";
+import { getSetting } from "../lib/db";
 import { upsertSetting } from "../lib/db";
 import { sendSlackNotification } from "./slack";
 import { buildEmailDraftReadyNotification } from "./slack-events";
+import { getAllCampaignsWithClientsForEmailAgent } from "./db";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? 300_000);
@@ -56,7 +57,7 @@ async function pollOnce(): Promise<void> {
 
   let allCampaigns;
   try {
-    allCampaigns = await getAllCampaignsWithClients();
+    allCampaigns = await getAllCampaignsWithClientsForEmailAgent();
   } catch (error) {
     console.error("Failed to fetch campaigns:", error);
     return;
