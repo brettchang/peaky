@@ -5,6 +5,7 @@ import type {
   Client,
   Campaign,
   CampaignManager,
+  CampaignManagerNote,
   Placement,
   CopyVersion,
   OnboardingRound,
@@ -28,6 +29,7 @@ import type {
   OnboardingFormType,
 } from "../types";
 import { DAILY_CAPACITY_LIMITS, isCampaignManager } from "../types";
+import { isClientCopyPlacement } from "../types";
 import type {
   CampaignInvoiceLink,
   PlacementInvoiceLink,
@@ -36,6 +38,7 @@ import type {
 } from "../xero-types";
 import { getXeroConnection, fetchXeroInvoice } from "../xero";
 import { extractPlacementMeta } from "../placement-meta";
+import { extractCampaignManagerNotes } from "../campaign-manager-notes";
 
 const BILLING_META_START = "<!-- billing-meta:start -->";
 const BILLING_META_END = "<!-- billing-meta:end -->";
@@ -215,6 +218,10 @@ function mapPlacement(
 }
 
 function canClientViewCopy(placement: Placement): boolean {
+  if (isClientCopyPlacement(placement)) {
+    return true;
+  }
+
   const status = placement.status;
   const statusAllowsCopy =
     status === "Peak Team Review Complete" ||
@@ -259,6 +266,7 @@ type CampaignRelational = typeof schema.campaigns.$inferSelect & {
   })[];
   onboardingRounds: (typeof schema.onboardingRounds.$inferSelect)[];
   billingOnboarding: typeof schema.billingOnboarding.$inferSelect | null;
+  campaignManagerNotes: (typeof schema.campaignManagerNotes.$inferSelect)[];
   campaignInvoices?: (typeof schema.campaignInvoices.$inferSelect)[];
 };
 
@@ -311,6 +319,21 @@ function isMissingFormLinkColumnError(error: unknown): boolean {
   );
 }
 
+function isMissingCampaignManagerNotesTableError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = "message" in error ? String(error.message) : "";
+  const causeMessage =
+    "cause" in error && typeof error.cause === "object" && error.cause !== null
+      ? "message" in error.cause
+        ? String(error.cause.message)
+        : ""
+      : "";
+  return (
+    message.includes("campaign_manager_notes") ||
+    causeMessage.includes("campaign_manager_notes")
+  );
+}
+
 function mapXeroToDashboardStatus(status?: XeroInvoiceStatus): DashboardInvoiceStatus {
   switch (status) {
     case "DRAFT":
@@ -329,6 +352,10 @@ function withMissingBillingOnboarding<
   return rows.map((row) => ({
     ...row,
     billingOnboarding: null,
+    campaignManagerNotes:
+      "campaignManagerNotes" in row
+        ? (row as unknown as CampaignRelational).campaignManagerNotes
+        : [],
   }));
 }
 
@@ -339,11 +366,57 @@ function withMissingCampaignForms<
     ...row,
     onboardingRounds: [],
     billingOnboarding: null,
+    campaignManagerNotes: [],
   }));
 }
 
+function withMissingCampaignManagerNotes<
+  T extends Omit<CampaignRelational, "campaignManagerNotes">
+>(rows: T[]): CampaignRelational[] {
+  return rows.map((row) => ({
+    ...row,
+    campaignManagerNotes: [],
+  }));
+}
+
+function mapCampaignManagerNote(
+  row: typeof schema.campaignManagerNotes.$inferSelect
+): CampaignManagerNote {
+  return {
+    id: row.id,
+    campaignId: row.campaignId,
+    authorName: normalizeCampaignManager(row.authorName),
+    body: row.body,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 function mapCampaign(row: CampaignRelational): Campaign {
-  const extracted = extractCampaignPortalMeta(row.notes);
+  const managerNotesExtracted = extractCampaignManagerNotes(row.notes);
+  const extracted = extractCampaignPortalMeta(
+    managerNotesExtracted.notesWithoutManagerNotes
+  );
+  const campaignManagerNotes = row.campaignManagerNotes
+    .map(mapCampaignManagerNote)
+    .sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  const legacyLatestNote = managerNotesExtracted.managerNotes?.trim()
+    ? {
+        id: "legacy-campaign-notes",
+        campaignId: row.id,
+        authorName: normalizeCampaignManager(row.campaignManager),
+        body: managerNotesExtracted.managerNotes.trim(),
+        createdAt: row.createdAt.toISOString(),
+      }
+    : undefined;
+  const allCampaignManagerNotes =
+    campaignManagerNotes.length > 0
+      ? campaignManagerNotes
+      : legacyLatestNote
+        ? [legacyLatestNote]
+        : [];
+  const latestCampaignManagerNote = allCampaignManagerNotes[0];
   const contacts =
     normalizeCampaignContacts(extracted.meta.contacts) ??
     (row.contactName && row.contactEmail
@@ -369,6 +442,8 @@ function mapCampaign(row: CampaignRelational): Campaign {
     placementsDescription: row.placementsDescription ?? undefined,
     performanceTableUrl: row.performanceTableUrl ?? undefined,
     notes: extracted.cleanNotes ?? undefined,
+    campaignManagerNotes: allCampaignManagerNotes,
+    latestCampaignManagerNote,
     onboardingCampaignObjective: row.onboardingCampaignObjective ?? undefined,
     onboardingKeyMessage: row.onboardingKeyMessage ?? undefined,
     onboardingTalkingPoints: row.onboardingTalkingPoints ?? undefined,
@@ -388,7 +463,13 @@ function mapCampaign(row: CampaignRelational): Campaign {
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       ),
     billingOnboarding: row.billingOnboarding
-      ? mapBillingOnboarding(row.billingOnboarding)
+      ? {
+          ...mapBillingOnboarding(row.billingOnboarding),
+          primaryContactName: row.contactName ?? undefined,
+          primaryContactEmail: row.contactEmail ?? undefined,
+          representingClient: extracted.meta.representingClient,
+          wantsPeakCopy: extracted.meta.wantsPeakCopy,
+        }
       : undefined,
     placements: row.placements.map((p) =>
       mapPlacement(
@@ -507,10 +588,11 @@ export async function getCampaignById(
         },
         onboardingRounds: true,
         billingOnboarding: true,
+        campaignManagerNotes: true,
       },
     })) as CampaignRelational | null;
   } catch (error) {
-    if (isMissingBillingIoColumnError(error)) {
+    if (isMissingCampaignManagerNotesTableError(error)) {
       try {
         const fallbackRow = await db.query.campaigns.findFirst({
           where: eq(schema.campaigns.id, campaignId),
@@ -519,6 +601,91 @@ export async function getCampaignById(
               with: { revisionHistory: true },
             },
             onboardingRounds: true,
+            billingOnboarding: true,
+          },
+        });
+        row = fallbackRow
+          ? withMissingCampaignManagerNotes([
+              fallbackRow as Omit<CampaignRelational, "campaignManagerNotes">,
+            ])[0]
+          : null;
+      } catch (fallbackError) {
+        if (isMissingBillingIoColumnError(fallbackError)) {
+          try {
+            const withoutBillingRow = await db.query.campaigns.findFirst({
+              where: eq(schema.campaigns.id, campaignId),
+              with: {
+                placements: {
+                  with: { revisionHistory: true },
+                },
+                onboardingRounds: true,
+              },
+            });
+            row = withoutBillingRow
+              ? withMissingCampaignManagerNotes(
+                  withMissingBillingOnboarding([
+                    withoutBillingRow as unknown as Omit<
+                      CampaignRelational,
+                      "billingOnboarding"
+                    >,
+                  ])
+                )[0]
+              : null;
+          } catch (legacyError) {
+            if (!isMissingFormLinkColumnError(legacyError)) throw legacyError;
+            const legacyRow = await db.query.campaigns.findFirst({
+              where: eq(schema.campaigns.id, campaignId),
+              with: {
+                placements: {
+                  with: { revisionHistory: true },
+                },
+              },
+            });
+            row = legacyRow
+              ? withMissingCampaignManagerNotes(
+                  withMissingCampaignForms([
+                    legacyRow as unknown as Omit<
+                      CampaignRelational,
+                      "onboardingRounds" | "billingOnboarding"
+                    >,
+                  ])
+                )[0]
+              : null;
+          }
+        } else if (isMissingFormLinkColumnError(fallbackError)) {
+          const legacyRow = await db.query.campaigns.findFirst({
+            where: eq(schema.campaigns.id, campaignId),
+            with: {
+              placements: {
+                with: { revisionHistory: true },
+              },
+              billingOnboarding: true,
+            },
+          });
+          row = legacyRow
+            ? withMissingCampaignManagerNotes(
+                withMissingCampaignForms([
+                  legacyRow as unknown as Omit<
+                    CampaignRelational,
+                    "onboardingRounds" | "billingOnboarding"
+                  >,
+                ])
+              )[0]
+            : null;
+        } else {
+          throw fallbackError;
+        }
+      }
+    } else if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRow = await db.query.campaigns.findFirst({
+          where: eq(schema.campaigns.id, campaignId),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+            campaignManagerNotes: true,
           },
         });
         row = fallbackRow
@@ -534,6 +701,7 @@ export async function getCampaignById(
             placements: {
               with: { revisionHistory: true },
             },
+            campaignManagerNotes: true,
           },
         });
         row = legacyRow
@@ -552,6 +720,7 @@ export async function getCampaignById(
           placements: {
             with: { revisionHistory: true },
           },
+          campaignManagerNotes: true,
         },
       });
       row = legacyRow
@@ -639,10 +808,11 @@ export async function getCampaignsForClient(
         },
         onboardingRounds: true,
         billingOnboarding: true,
+        campaignManagerNotes: true,
       },
     })) as CampaignRelational[];
   } catch (error) {
-    if (isMissingBillingIoColumnError(error)) {
+    if (isMissingCampaignManagerNotesTableError(error)) {
       try {
         const fallbackRows = await db.query.campaigns.findMany({
           where: eq(schema.campaigns.clientId, client.id),
@@ -651,6 +821,83 @@ export async function getCampaignsForClient(
               with: { revisionHistory: true },
             },
             onboardingRounds: true,
+            billingOnboarding: true,
+          },
+        });
+        campaignRows = withMissingCampaignManagerNotes(
+          fallbackRows as Omit<CampaignRelational, "campaignManagerNotes">[]
+        );
+      } catch (fallbackError) {
+        if (isMissingBillingIoColumnError(fallbackError)) {
+          try {
+            const withoutBillingRows = await db.query.campaigns.findMany({
+              where: eq(schema.campaigns.clientId, client.id),
+              with: {
+                placements: {
+                  with: { revisionHistory: true },
+                },
+                onboardingRounds: true,
+              },
+            });
+            campaignRows = withMissingCampaignManagerNotes(
+              withMissingBillingOnboarding(
+                withoutBillingRows as unknown as Omit<
+                  CampaignRelational,
+                  "billingOnboarding"
+                >[]
+              )
+            );
+          } catch (legacyError) {
+            if (!isMissingFormLinkColumnError(legacyError)) throw legacyError;
+            const legacyRows = await db.query.campaigns.findMany({
+              where: eq(schema.campaigns.clientId, client.id),
+              with: {
+                placements: {
+                  with: { revisionHistory: true },
+                },
+              },
+            });
+            campaignRows = withMissingCampaignManagerNotes(
+              withMissingCampaignForms(
+                legacyRows as unknown as Omit<
+                  CampaignRelational,
+                  "onboardingRounds" | "billingOnboarding"
+                >[]
+              )
+            );
+          }
+        } else if (isMissingFormLinkColumnError(fallbackError)) {
+          const legacyRows = await db.query.campaigns.findMany({
+            where: eq(schema.campaigns.clientId, client.id),
+            with: {
+              placements: {
+                with: { revisionHistory: true },
+              },
+              billingOnboarding: true,
+            },
+          });
+          campaignRows = withMissingCampaignManagerNotes(
+            withMissingCampaignForms(
+              legacyRows as unknown as Omit<
+                CampaignRelational,
+                "onboardingRounds" | "billingOnboarding"
+              >[]
+            )
+          );
+        } else {
+          throw fallbackError;
+        }
+      }
+    } else if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRows = await db.query.campaigns.findMany({
+          where: eq(schema.campaigns.clientId, client.id),
+          with: {
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+            campaignManagerNotes: true,
           },
         });
         campaignRows = withMissingBillingOnboarding(
@@ -664,6 +911,7 @@ export async function getCampaignsForClient(
             placements: {
               with: { revisionHistory: true },
             },
+            campaignManagerNotes: true,
           },
         });
         campaignRows = withMissingCampaignForms(
@@ -680,6 +928,7 @@ export async function getCampaignsForClient(
           placements: {
             with: { revisionHistory: true },
           },
+          campaignManagerNotes: true,
         },
       });
       campaignRows = withMissingCampaignForms(
@@ -720,12 +969,13 @@ export async function getAllCampaignsWithClients(): Promise<
         },
         onboardingRounds: true,
         billingOnboarding: true,
+        campaignManagerNotes: true,
       },
     })) as (CampaignRelational & {
       client: typeof schema.clients.$inferSelect;
     })[];
   } catch (error) {
-    if (isMissingBillingIoColumnError(error)) {
+    if (isMissingCampaignManagerNotesTableError(error)) {
       try {
         const fallbackRows = await db.query.campaigns.findMany({
           with: {
@@ -734,6 +984,99 @@ export async function getAllCampaignsWithClients(): Promise<
               with: { revisionHistory: true },
             },
             onboardingRounds: true,
+            billingOnboarding: true,
+          },
+        });
+        campaignRows = withMissingCampaignManagerNotes(
+          fallbackRows as (Omit<CampaignRelational, "campaignManagerNotes"> & {
+            client: typeof schema.clients.$inferSelect;
+          })[]
+        ) as (CampaignRelational & {
+          client: typeof schema.clients.$inferSelect;
+        })[];
+      } catch (fallbackError) {
+        if (isMissingBillingIoColumnError(fallbackError)) {
+          try {
+            const withoutBillingRows = await db.query.campaigns.findMany({
+              with: {
+                client: true,
+                placements: {
+                  with: { revisionHistory: true },
+                },
+                onboardingRounds: true,
+              },
+            });
+            campaignRows = withMissingCampaignManagerNotes(
+              withMissingBillingOnboarding(
+                withoutBillingRows as unknown as (Omit<
+                  CampaignRelational,
+                  "billingOnboarding"
+                > & {
+                  client: typeof schema.clients.$inferSelect;
+                })[]
+              )
+            ) as (CampaignRelational & {
+              client: typeof schema.clients.$inferSelect;
+            })[];
+          } catch (legacyError) {
+            if (!isMissingFormLinkColumnError(legacyError)) throw legacyError;
+            const legacyRows = await db.query.campaigns.findMany({
+              with: {
+                client: true,
+                placements: {
+                  with: { revisionHistory: true },
+                },
+              },
+            });
+            campaignRows = withMissingCampaignManagerNotes(
+              withMissingCampaignForms(
+                legacyRows as unknown as (Omit<
+                  CampaignRelational,
+                  "onboardingRounds" | "billingOnboarding"
+                > & {
+                  client: typeof schema.clients.$inferSelect;
+                })[]
+              )
+            ) as (CampaignRelational & {
+              client: typeof schema.clients.$inferSelect;
+            })[];
+          }
+        } else if (isMissingFormLinkColumnError(fallbackError)) {
+          const legacyRows = await db.query.campaigns.findMany({
+            with: {
+              client: true,
+              placements: {
+                with: { revisionHistory: true },
+              },
+              billingOnboarding: true,
+            },
+          });
+          campaignRows = withMissingCampaignManagerNotes(
+            withMissingCampaignForms(
+              legacyRows as unknown as (Omit<
+                CampaignRelational,
+                "onboardingRounds" | "billingOnboarding"
+              > & {
+                client: typeof schema.clients.$inferSelect;
+              })[]
+            )
+          ) as (CampaignRelational & {
+            client: typeof schema.clients.$inferSelect;
+          })[];
+        } else {
+          throw fallbackError;
+        }
+      }
+    } else if (isMissingBillingIoColumnError(error)) {
+      try {
+        const fallbackRows = await db.query.campaigns.findMany({
+          with: {
+            client: true,
+            placements: {
+              with: { revisionHistory: true },
+            },
+            onboardingRounds: true,
+            campaignManagerNotes: true,
           },
         });
         campaignRows = withMissingBillingOnboarding(
@@ -751,6 +1094,7 @@ export async function getAllCampaignsWithClients(): Promise<
             placements: {
               with: { revisionHistory: true },
             },
+            campaignManagerNotes: true,
           },
         });
         campaignRows = withMissingCampaignForms(
@@ -771,6 +1115,7 @@ export async function getAllCampaignsWithClients(): Promise<
           placements: {
             with: { revisionHistory: true },
           },
+          campaignManagerNotes: true,
         },
       });
       campaignRows = withMissingCampaignForms(
@@ -791,7 +1136,7 @@ export async function getAllCampaignsWithClients(): Promise<
   return campaignRows.map((row) => ({
     campaign: mapCampaign(row),
     clientName: row.client.name,
-    clientPortalId: row.portalId,
+    clientPortalId: row.client.portalId,
   }));
 }
 
@@ -1289,12 +1634,18 @@ export async function getPlacementsScheduledOn(
 
 function getWeekdaysInRange(start: string, end: string): string[] {
   const dates: string[] = [];
+  const toDateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
   const current = new Date(start + "T00:00:00");
   const last = new Date(end + "T00:00:00");
   while (current <= last) {
     const day = current.getDay();
     if (day !== 0 && day !== 6) {
-      dates.push(current.toISOString().slice(0, 10));
+      dates.push(toDateKey(current));
     }
     current.setDate(current.getDate() + 1);
   }

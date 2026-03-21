@@ -18,6 +18,9 @@
 
 # misc
 .DS_Store
+
+# generated client documents
+/output
 *.pem
 
 # debug

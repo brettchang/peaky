@@ -23,8 +23,8 @@ const statusStyles: Record<string, string> = {
   "Approved Interview": "bg-green-100 text-green-700",
 
   // Campaign statuses (Notion Campaigns DB)
-  "Waiting on Onboarding": "bg-gray-100 text-gray-700",
-  "Onboarding Form Complete": "bg-yellow-100 text-yellow-700",
+  "Onboarding to be sent": "bg-slate-100 text-slate-700",
+  "Waiting for onboarding": "bg-yellow-100 text-yellow-700",
   Active: "bg-green-100 text-green-700",
   "Placements Completed": "bg-blue-100 text-blue-700",
   Wrapped: "bg-purple-100 text-purple-700",

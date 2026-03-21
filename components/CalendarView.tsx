@@ -207,6 +207,7 @@ export function CalendarView({ data }: { data: DashboardCampaign[] }) {
                     <Link
                       key={`${p.campaignId}-${p.type}-${j}`}
                       href={`/dashboard/${p.campaignId}/${p.placementId}`}
+                      prefetch={false}
                       className="group flex overflow-hidden rounded text-left hover:shadow-sm"
                     >
                       <div

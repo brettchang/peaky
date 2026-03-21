@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { addPlacement } from "@/lib/db";
-import { getDefaultPlacementStatus } from "@/lib/types";
+import { getDefaultPlacementStatus, isValidPlacementPublication } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
     scheduledDate,
     scheduledEndDate,
     interviewScheduled,
+    committedImpressions,
     copyProducer,
     status,
     notes,
@@ -25,12 +26,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!isValidPlacementPublication(type, publication)) {
+    return NextResponse.json(
+      { error: `Invalid type/publication combination: ${type} + ${publication}` },
+      { status: 400 }
+    );
+  }
+
+  if (
+    committedImpressions !== undefined &&
+    committedImpressions !== null &&
+    (!Number.isFinite(committedImpressions) ||
+      committedImpressions < 0 ||
+      !Number.isInteger(committedImpressions))
+  ) {
+    return NextResponse.json(
+      { error: "committedImpressions must be a non-negative integer" },
+      { status: 400 }
+    );
+  }
+
   const placement = await addPlacement(campaignId, {
     type,
     publication,
     scheduledDate: scheduledDate || undefined,
     scheduledEndDate: scheduledEndDate || undefined,
     interviewScheduled: interviewScheduled ?? undefined,
+    committedImpressions: committedImpressions ?? undefined,
     copyProducer: copyProducer || undefined,
     status: status || getDefaultPlacementStatus(type, publication),
     notes: notes || undefined,

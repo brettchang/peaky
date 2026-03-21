@@ -7,6 +7,8 @@ export type XeroInvoiceStatus =
   | "VOIDED"
   | "DELETED";
 
+export type DashboardInvoiceStatus = "DRAFT" | "AWAITING_PAYMENT" | "PAID";
+
 export interface XeroInvoiceContact {
   contactID: string;
   name: string;
@@ -29,6 +31,7 @@ export interface CampaignInvoiceLink {
   id: string;
   campaignId: string;
   xeroInvoiceId: string;
+  dashboardStatus: DashboardInvoiceStatus;
   linkedAt: string;
   notes?: string;
   invoice?: XeroInvoice;

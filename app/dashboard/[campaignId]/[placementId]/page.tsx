@@ -58,8 +58,14 @@ export default async function PlacementDetailPage({
         onboardingAnswers={{
           roundLabel: placementRound?.label ?? placementRound?.id,
           roundComplete: placementRound?.complete,
-          campaignMessaging: campaign.onboardingMessaging,
-          campaignDesiredAction: campaign.onboardingDesiredAction,
+          campaignObjective: campaign.onboardingCampaignObjective,
+          keyMessage: campaign.onboardingKeyMessage,
+          talkingPoints: campaign.onboardingTalkingPoints,
+          callToAction: campaign.onboardingCallToAction,
+          targetAudience: campaign.onboardingTargetAudience,
+          toneGuidelines: campaign.onboardingToneGuidelines,
+          specialInvoicingInstructions:
+            campaign.billingOnboarding?.specialInstructions,
           placementBrief: placement.onboardingBrief,
           placementLink: placement.linkToPlacement,
           logoUrl: placement.logoUrl,

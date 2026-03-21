@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Copy Review</title>
+<style>
+  body {
+    font-family: 'Calibri', 'Arial', sans-serif;
+    font-size: 11pt;
+    color: #111;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 60px;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 2px solid #111;
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+  .brand {
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #111;
+  }
+  .doc-title {
+    font-size: 20pt;
+    font-weight: 700;
+    margin: 10px 0 4px 0;
+    color: #111;
+  }
+  .doc-subtitle {
+    font-size: 10pt;
+    color: #555;
+  }
+  .meta-row {
+    display: flex;
+    gap: 40px;
+    margin-top: 20px;
+  }
+  .meta-field {
+    flex: 1;
+  }
+  .meta-label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    font-weight: 700;
+  }
+  .meta-value {
+    border-bottom: 1px solid #ccc;
+    min-height: 22px;
+    margin-top: 4px;
+    font-size: 11pt;
+    padding-bottom: 2px;
+  }
+
+  /* Instructions box */
+  .instructions {
+    background: #f5f5f5;
+    border-left: 3px solid #111;
+    padding: 12px 16px;
+    margin-bottom: 32px;
+    font-size: 10pt;
+    color: #444;
+    line-height: 1.6;
+  }
+  .instructions strong {
+    color: #111;
+  }
+
+  /* Section */
+  .section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #111;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 6px;
+    margin-bottom: 24px;
+  }
+
+  /* Placement card */
+  .placement-card {
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-bottom: 36px;
+    page-break-inside: avoid;
+  }
+  .placement-card-header {
+    background: #111;
+    color: white;
+    padding: 10px 18px;
+    border-radius: 4px 4px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .placement-card-title {
+    font-size: 11pt;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+  .placement-card-meta {
+    font-size: 8.5pt;
+    color: #ccc;
+  }
+  .placement-card-body {
+    padding: 20px 20px 0 20px;
+  }
+
+  /* Copy block */
+  .copy-block {
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    line-height: 1.65;
+    font-size: 11pt;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    min-height: 60px;
+  }
+  .copy-block-label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  /* Version / status info */
+  .copy-meta {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 16px;
+  }
+  .copy-meta-item {
+    font-size: 9pt;
+    color: #666;
+  }
+  .copy-meta-item strong {
+    color: #111;
+  }
+
+  /* Action section */
+  .action-section {
+    padding: 16px 20px 20px 20px;
+    background: #fafafa;
+    border-top: 1px solid #e0e0e0;
+  }
+  .action-title {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 14px;
+  }
+
+  /* Approval box */
+  .approval-options {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+  }
+  .approval-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5pt;
+  }
+  .checkbox {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #555;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .checkbox.approve {
+    border-color: #1a7a1a;
+  }
+  .checkbox.revise {
+    border-color: #b35900;
+  }
+
+  /* Fields */
+  .field {
+    margin-bottom: 16px;
+  }
+  .field-label {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 5px;
+  }
+  .field-hint {
+    font-size: 9pt;
+    color: #888;
+    font-style: italic;
+    margin-bottom: 5px;
+  }
+  .field-input {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    min-height: 65px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    font-size: 11pt;
+    font-family: 'Calibri', 'Arial', sans-serif;
+    color: #111;
+    background: white;
+  }
+  .field-input.single {
+    min-height: 34px;
+  }
+  .field-input.tall {
+    min-height: 100px;
+  }
+
+  /* Link section */
+  .link-section {
+    padding: 14px 20px;
+    border-top: 1px dashed #ccc;
+    background: white;
+  }
+
+  /* Sig */
+  .sig-row {
+    display: flex;
+    gap: 40px;
+    margin-top: 12px;
+  }
+  .sig-field {
+    flex: 1;
+  }
+  .sig-line {
+    border-bottom: 1px solid #aaa;
+    min-height: 28px;
+    margin-top: 4px;
+  }
+  .sig-label-text {
+    font-size: 8pt;
+    color: #888;
+    margin-top: 3px;
+  }
+
+  /* Cover page summary */
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 32px;
+    font-size: 10pt;
+  }
+  .summary-table th {
+    background: #111;
+    color: white;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .summary-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e0e0e0;
+    vertical-align: top;
+  }
+  .summary-table tr:last-child td {
+    border-bottom: none;
+  }
+  .summary-table tr:nth-child(even) td {
+    background: #f9f9f9;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 9pt;
+    font-weight: 700;
+  }
+  .status-pending {
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  @media print {
+    .page { padding: 40px; }
+    .placement-card { page-break-inside: avoid; }
+    .field-input { background: white; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">The Peak</div>
+    <div class="doc-title">Copy Review</div>
+    <div class="doc-subtitle">Review the draft copy below. Approve or submit revision notes for each placement.</div>
+    <div class="meta-row">
+      <div class="meta-field">
+        <div class="meta-label">Client / Brand Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Campaign Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Date Sent</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="instructions">
+    <strong>How to review:</strong> For each placement, read the copy carefully. Then either:<br>
+    &nbsp;&nbsp;✓ &nbsp;<strong>Approve</strong> — check the Approve box and sign/date at the bottom of that placement's section, or<br>
+    &nbsp;&nbsp;✗ &nbsp;<strong>Request revisions</strong> — check the Revisions Needed box and fill in the revision notes box with your feedback.<br><br>
+    Reply to your Peak contact with the completed document. If you have questions about a specific placement, note them in the revision notes section.
+  </div>
+
+  <!-- Placement Summary Table (fill in before sending) -->
+  <div class="section-title">Placements in This Review</div>
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Placement Type</th>
+        <th>Publication</th>
+        <th>Run Date</th>
+        <th>Version</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td><span class="status-badge status-pending">Pending Review</span></td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td><span class="status-badge status-pending">Pending Review</span></td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td><span class="status-badge status-pending">Pending Review</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="font-size:9pt;color:#888;font-style:italic;margin-top:-20px;margin-bottom:36px;">Add or remove rows as needed. Turn to the next page for individual placement detail.</p>
+
+  <!-- ============================== -->
+  <!-- PLACEMENT 1 -->
+  <!-- ============================== -->
+  <div class="placement-card">
+    <div class="placement-card-header">
+      <span class="placement-card-title">Placement 1 — [Type] · [Publication]</span>
+      <span class="placement-card-meta">Run Date: _________ &nbsp;|&nbsp; Version: ____</span>
+    </div>
+
+    <div class="placement-card-body">
+      <!-- Copy version / notes metadata -->
+      <div class="copy-meta">
+        <div class="copy-meta-item"><strong>Version:</strong> &nbsp; — </div>
+        <div class="copy-meta-item"><strong>Previous revision notes:</strong> &nbsp; — </div>
+      </div>
+
+      <!-- The copy -->
+      <div class="copy-block-label">Draft Copy</div>
+      <div class="copy-block">
+[Paste the ad copy here before sending to the client.]
+
+
+
+
+      </div>
+
+      <!-- Destination link (newsletter only) -->
+      <div class="field" style="margin-bottom:20px;">
+        <div class="field-label">Destination Link</div>
+        <div class="field-hint">The URL readers will be sent to when they click the ad. Please confirm or update.</div>
+        <div class="field-input single">&nbsp;</div>
+      </div>
+    </div>
+
+    <!-- Client response section -->
+    <div class="action-section">
+      <div class="action-title">Your Response</div>
+      <div class="approval-options">
+        <div class="approval-option">
+          <div class="checkbox approve"></div>
+          <span><strong>Approved</strong> — copy is good to go</span>
+        </div>
+        <div class="approval-option">
+          <div class="checkbox revise"></div>
+          <span><strong>Revisions Needed</strong> — see notes below</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Revision Notes <span style="font-weight:400;color:#888;">(fill in if requesting changes)</span></div>
+        <div class="field-hint">Be as specific as possible — which line to change, what to say instead, any words to add/remove, etc.</div>
+        <div class="field-input tall">&nbsp;</div>
+      </div>
+
+      <div class="sig-row">
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Reviewed by</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Name</div>
+        </div>
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Date</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Date reviewed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================== -->
+  <!-- PLACEMENT 2 -->
+  <!-- ============================== -->
+  <div class="placement-card">
+    <div class="placement-card-header">
+      <span class="placement-card-title">Placement 2 — [Type] · [Publication]</span>
+      <span class="placement-card-meta">Run Date: _________ &nbsp;|&nbsp; Version: ____</span>
+    </div>
+
+    <div class="placement-card-body">
+      <div class="copy-meta">
+        <div class="copy-meta-item"><strong>Version:</strong> &nbsp; — </div>
+        <div class="copy-meta-item"><strong>Previous revision notes:</strong> &nbsp; — </div>
+      </div>
+
+      <div class="copy-block-label">Draft Copy</div>
+      <div class="copy-block">
+[Paste the ad copy here before sending to the client.]
+
+
+
+
+      </div>
+
+      <div class="field" style="margin-bottom:20px;">
+        <div class="field-label">Destination Link</div>
+        <div class="field-hint">The URL readers will be sent to when they click the ad. Please confirm or update.</div>
+        <div class="field-input single">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="action-section">
+      <div class="action-title">Your Response</div>
+      <div class="approval-options">
+        <div class="approval-option">
+          <div class="checkbox approve"></div>
+          <span><strong>Approved</strong> — copy is good to go</span>
+        </div>
+        <div class="approval-option">
+          <div class="checkbox revise"></div>
+          <span><strong>Revisions Needed</strong> — see notes below</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Revision Notes <span style="font-weight:400;color:#888;">(fill in if requesting changes)</span></div>
+        <div class="field-hint">Be as specific as possible — which line to change, what to say instead, any words to add/remove, etc.</div>
+        <div class="field-input tall">&nbsp;</div>
+      </div>
+
+      <div class="sig-row">
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Reviewed by</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Name</div>
+        </div>
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Date</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Date reviewed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================== -->
+  <!-- PLACEMENT 3 (duplicate as needed) -->
+  <!-- ============================== -->
+  <div class="placement-card">
+    <div class="placement-card-header">
+      <span class="placement-card-title">Placement 3 — [Type] · [Publication]</span>
+      <span class="placement-card-meta">Run Date: _________ &nbsp;|&nbsp; Version: ____</span>
+    </div>
+
+    <div class="placement-card-body">
+      <div class="copy-meta">
+        <div class="copy-meta-item"><strong>Version:</strong> &nbsp; — </div>
+        <div class="copy-meta-item"><strong>Previous revision notes:</strong> &nbsp; — </div>
+      </div>
+
+      <div class="copy-block-label">Draft Copy</div>
+      <div class="copy-block">
+[Paste the ad copy here before sending to the client.]
+
+
+
+
+      </div>
+
+      <div class="field" style="margin-bottom:20px;">
+        <div class="field-label">Destination Link</div>
+        <div class="field-hint">The URL readers will be sent to when they click the ad. Please confirm or update.</div>
+        <div class="field-input single">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="action-section">
+      <div class="action-title">Your Response</div>
+      <div class="approval-options">
+        <div class="approval-option">
+          <div class="checkbox approve"></div>
+          <span><strong>Approved</strong> — copy is good to go</span>
+        </div>
+        <div class="approval-option">
+          <div class="checkbox revise"></div>
+          <span><strong>Revisions Needed</strong> — see notes below</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">Revision Notes <span style="font-weight:400;color:#888;">(fill in if requesting changes)</span></div>
+        <div class="field-hint">Be as specific as possible — which line to change, what to say instead, any words to add/remove, etc.</div>
+        <div class="field-input tall">&nbsp;</div>
+      </div>
+
+      <div class="sig-row">
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Reviewed by</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Name</div>
+        </div>
+        <div class="sig-field">
+          <div class="field-label" style="font-size:9pt;">Date</div>
+          <div class="sig-line">&nbsp;</div>
+          <div class="sig-label-text">Date reviewed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Return instructions -->
+  <div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:14px 18px;font-size:9.5pt;color:#555;margin-top:8px;">
+    <strong style="color:#111;">Please return the completed document to your Peak contact.</strong> If approving all placements, you can also reply with a simple "All approved" — but please include revision notes for any placements that need changes.
+  </div>
+
+</div>
+</body>
+</html>

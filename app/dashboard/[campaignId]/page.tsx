@@ -16,13 +16,15 @@ import { AdLineItems } from "@/components/AdLineItems";
 import { BillingDetails } from "@/components/BillingDetails";
 import { CampaignInvoiceSection } from "@/components/CampaignInvoiceSection";
 import { CampaignMetadataEditor } from "@/components/CampaignMetadataEditor";
-import { DateRangeScheduler } from "@/components/DateRangeScheduler";
 import { GenerateCopyButton } from "@/components/GenerateCopyButton";
-import { SendOnboardingEmailButton } from "@/components/SendOnboardingEmailButton";
+import { CreateIoButton } from "@/components/CreateIoButton";
+import { CampaignManagerNotesPanel } from "@/components/CampaignManagerNotesPanel";
 import {
   onboardingOverridesSettingKey,
   parseCampaignOnboardingOverrides,
 } from "@/lib/onboarding-overrides";
+import { getPortalBaseUrl } from "@/lib/urls";
+import { isAiCopyGeneratableType } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +41,12 @@ export default async function CampaignDetailPage({
   const campaign = await getCampaignById(campaignId);
   if (!campaign) notFound();
 
-  const [client, xeroStatus, invoiceLinks, onboardingOverridesRaw] = await Promise.all([
+  const [
+    client,
+    xeroStatus,
+    invoiceLinks,
+    onboardingOverridesRaw,
+  ] = await Promise.all([
     getClientByCampaignId(campaignId),
     isXeroConnected(),
     getCampaignInvoiceLinks(campaignId),
@@ -48,6 +55,7 @@ export default async function CampaignDetailPage({
   const onboardingOverrides = parseCampaignOnboardingOverrides(
     onboardingOverridesRaw
   );
+  const completedOnboardingRounds = campaign.onboardingRounds.filter((r) => r.complete);
 
   // Fetch placement invoice links in parallel
   const placementInvoiceEntries = await Promise.all(
@@ -59,13 +67,18 @@ export default async function CampaignDetailPage({
   const invoiceLinksByPlacement: Record<string, import("@/lib/xero-types").PlacementInvoiceLink[]> =
     Object.fromEntries(placementInvoiceEntries);
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-  const portalUrl = client
+  const baseUrl = getPortalBaseUrl();
+  const portalBaseUrl = client
     ? `${baseUrl}/portal/${client.portalId}`
     : "";
-  const primaryContact =
-    campaign.contacts && campaign.contacts.length > 0
-      ? campaign.contacts[0]
+  const portalCampaignUrl = portalBaseUrl
+    ? `${portalBaseUrl}/${campaign.id}`
+    : "";
+  const ioDisabledReason = !campaign.billingOnboarding?.billingContactName ||
+    !campaign.billingOnboarding?.billingContactEmail
+    ? "Complete billing contact name/email before creating an IO."
+    : !campaign.adLineItems || campaign.adLineItems.length === 0
+      ? "Add campaign line items before creating an IO."
       : undefined;
 
   return (
@@ -84,20 +97,18 @@ export default async function CampaignDetailPage({
             <h1 className="text-2xl font-bold text-gray-900">{campaign.name}</h1>
             <StatusBadge status={campaign.status} />
           </div>
-          {client && (
-            <SendOnboardingEmailButton
-              campaignId={campaign.id}
-              campaignName={campaign.name}
-              clientName={client.name}
-              recipientEmail={primaryContact?.email ?? campaign.contactEmail}
-              recipientName={primaryContact?.name ?? campaign.contactName}
-              portalCampaignUrl={`${portalUrl}/${campaign.id}`}
-            />
-          )}
         </div>
         {client && (
           <p className="mt-1 text-sm text-gray-500">{client.name}</p>
         )}
+        <div className="mt-3">
+          <CreateIoButton
+            campaignId={campaign.id}
+            existingDocumentUrl={campaign.pandadocDocumentUrl}
+            existingStatus={campaign.pandadocStatus}
+            disabledReason={ioDisabledReason}
+          />
+        </div>
       </div>
 
       {/* Metadata grid */}
@@ -106,15 +117,22 @@ export default async function CampaignDetailPage({
         campaign={{
           name: campaign.name,
           clientName: client?.name,
+          category: campaign.category,
           status: campaign.status,
+          longTermClient: campaign.longTermClient,
+          complementaryCampaign: campaign.complementaryCampaign,
           salesPerson: campaign.salesPerson,
           campaignManager: campaign.campaignManager,
+          currency: campaign.currency,
+          taxEligible: campaign.taxEligible,
           legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl,
           contactName: campaign.contactName,
           contactEmail: campaign.contactEmail,
           contacts: campaign.contacts,
           notes: extractCleanNotes(campaign.notes),
           placementCount: campaign.placements.length,
+          specialInvoicingInstructions:
+            campaign.billingOnboarding?.specialInstructions,
           invoiceCadenceLabel:
             campaign.billingOnboarding?.complete && campaign.billingOnboarding.invoiceCadence
               ? campaign.billingOnboarding.invoiceCadence.type === "lump-sum"
@@ -126,54 +144,109 @@ export default async function CampaignDetailPage({
         }}
       />
 
-      {/* Onboarding */}
-      <OnboardingStatus
-        rounds={campaign.onboardingRounds}
+      <CampaignManagerNotesPanel
         campaignId={campaign.id}
-        campaignName={campaign.name}
-        clientName={client?.name ?? "Client"}
-        recipientEmail={primaryContact?.email ?? campaign.contactEmail}
-        recipientName={primaryContact?.name ?? campaign.contactName}
-        billingOnboarding={campaign.billingOnboarding}
-        placements={campaign.placements}
-        onboardingSubmittedAt={campaign.onboardingSubmittedAt}
-        portalUrl={portalUrl}
-        overrides={onboardingOverrides}
+        defaultAuthor={campaign.campaignManager}
+        notes={campaign.campaignManagerNotes}
       />
 
+      {/* Onboarding */}
+      {campaign.category !== "Evergreen" && (
+        <OnboardingStatus
+          rounds={campaign.onboardingRounds}
+          campaignId={campaign.id}
+          billingOnboarding={campaign.billingOnboarding}
+          placements={campaign.placements}
+          onboardingSubmittedAt={campaign.onboardingSubmittedAt}
+          portalUrl={portalBaseUrl}
+          overrides={onboardingOverrides}
+        />
+      )}
+
       {/* Client Onboarding Briefs — per round */}
-      {campaign.onboardingRounds.filter((r) => r.complete).length > 0 && (
-        <div className="mb-8 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-700">Client Onboarding Briefs</h3>
+      {completedOnboardingRounds.length > 0 && (
+        <details className="mb-8 rounded-lg border border-gray-200 bg-white">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-gray-700 marker:content-none">
+            <span>Client Onboarding Briefs</span>
+            <span className="text-xs font-medium text-gray-500">
+              {completedOnboardingRounds.length} submitted round
+              {completedOnboardingRounds.length === 1 ? "" : "s"}
+            </span>
+          </summary>
 
-          {/* Campaign-level messaging (shared) */}
-          {campaign.onboardingMessaging && (
-            <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Overall Messaging</p>
-                <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
-                  {campaign.onboardingMessaging}
-                </p>
+          <div className="space-y-4 border-t border-gray-100 px-5 py-4">
+            {/* Campaign-level script direction (shared) */}
+            {(campaign.onboardingCampaignObjective ||
+              campaign.onboardingKeyMessage ||
+              campaign.onboardingTalkingPoints ||
+              campaign.onboardingCallToAction ||
+              campaign.onboardingTargetAudience ||
+              campaign.onboardingToneGuidelines) && (
+              <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
+                {campaign.onboardingCampaignObjective && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Campaign Objective</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingCampaignObjective}
+                    </p>
+                  </div>
+                )}
+                {campaign.onboardingKeyMessage && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Key Message</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingKeyMessage}
+                    </p>
+                  </div>
+                )}
+                {campaign.onboardingTalkingPoints && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Talking Points</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingTalkingPoints}
+                    </p>
+                  </div>
+                )}
+                {campaign.onboardingCallToAction && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Call to Action</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingCallToAction}
+                    </p>
+                  </div>
+                )}
+                {campaign.onboardingTargetAudience && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Target Audience</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingTargetAudience}
+                    </p>
+                  </div>
+                )}
+                {campaign.onboardingToneGuidelines && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Tone / Brand Guidelines</p>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
+                      {campaign.onboardingToneGuidelines}
+                    </p>
+                  </div>
+                )}
               </div>
-              {campaign.onboardingDesiredAction && (
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Desired Action</p>
-                  <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">
-                    {campaign.onboardingDesiredAction}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Per-round briefs */}
-          {campaign.onboardingRounds
-            .filter((r) => r.complete)
-            .map((round) => {
+            {/* Per-round briefs */}
+            {completedOnboardingRounds.map((round) => {
               const roundPlacements = campaign.placements.filter(
                 (p) => p.onboardingRoundId === round.id
               );
-              const hasUngenerated = roundPlacements.some((p) => p.copyVersion === 0);
+              const hasUngenerated = roundPlacements.some((p) => {
+                if (!isAiCopyGeneratableType(p.type)) return false;
+                return (
+                  p.copyVersion === 0 ||
+                  p.status === "Copywriting in Progress" ||
+                  p.status === "Drafting Script"
+                );
+              });
               return (
                 <div key={round.id} className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
@@ -199,11 +272,12 @@ export default async function CampaignDetailPage({
                 </div>
               );
             })}
-        </div>
+          </div>
+        </details>
       )}
 
       {/* Billing Details */}
-      {campaign.billingOnboarding?.complete && (
+      {campaign.billingOnboarding && (
         <BillingDetails campaignId={campaign.id} billing={campaign.billingOnboarding} />
       )}
 
@@ -212,6 +286,10 @@ export default async function CampaignDetailPage({
         <CampaignInvoiceSection
           campaignId={campaign.id}
           invoiceLinks={invoiceLinks}
+          complementaryCampaign={campaign.complementaryCampaign ?? false}
+          specialInvoicingInstructions={
+            campaign.billingOnboarding?.specialInstructions
+          }
         />
       )}
 
@@ -222,18 +300,13 @@ export default async function CampaignDetailPage({
         placements={campaign.placements}
       />
 
-      {/* Date Range Scheduler */}
-      <DateRangeScheduler
-        campaignId={campaign.id}
-        placements={campaign.placements}
-      />
-
       {/* Placements */}
       <AdminPlacementList
         placements={campaign.placements}
         campaignId={campaign.id}
-        portalUrl={portalUrl}
+        portalUrl={portalCampaignUrl}
         onboardingRounds={campaign.onboardingRounds}
+        isEvergreen={campaign.category === "Evergreen"}
         invoiceLinksByPlacement={invoiceLinksByPlacement}
         adLineItems={campaign.adLineItems ?? []}
         xeroConnected={xeroStatus.connected}

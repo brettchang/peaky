@@ -87,6 +87,7 @@ export function PlacementDashboard({
                     <td className="px-4 py-3">
                       <Link
                         href={`/portal/${clientPortalId}/${row.campaignId}/${row.placement.id}`}
+                        prefetch={false}
                         className="font-medium text-gray-900 group-hover:text-blue-600"
                       >
                         {row.placement.type}

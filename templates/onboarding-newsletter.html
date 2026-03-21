@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Newsletter Ad Onboarding</title>
+<style>
+  body {
+    font-family: 'Calibri', 'Arial', sans-serif;
+    font-size: 11pt;
+    color: #111;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 60px;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 2px solid #111;
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+  .brand {
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #111;
+  }
+  .doc-title {
+    font-size: 20pt;
+    font-weight: 700;
+    margin: 10px 0 4px 0;
+    color: #111;
+  }
+  .doc-subtitle {
+    font-size: 10pt;
+    color: #555;
+  }
+  .meta-row {
+    display: flex;
+    gap: 40px;
+    margin-top: 20px;
+  }
+  .meta-field {
+    flex: 1;
+  }
+  .meta-label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    font-weight: 700;
+  }
+  .meta-value {
+    border-bottom: 1px solid #ccc;
+    min-height: 22px;
+    margin-top: 4px;
+    font-size: 11pt;
+    padding-bottom: 2px;
+  }
+
+  /* Instructions box */
+  .instructions {
+    background: #f5f5f5;
+    border-left: 3px solid #111;
+    padding: 12px 16px;
+    margin-bottom: 32px;
+    font-size: 10pt;
+    color: #444;
+    line-height: 1.5;
+  }
+  .instructions strong {
+    color: #111;
+  }
+
+  /* Section */
+  .section {
+    margin-bottom: 36px;
+  }
+  .section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #111;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 6px;
+    margin-bottom: 20px;
+  }
+
+  /* Form fields */
+  .field {
+    margin-bottom: 22px;
+  }
+  .field-label {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 4px;
+  }
+  .field-hint {
+    font-size: 9pt;
+    color: #888;
+    font-style: italic;
+    margin-bottom: 6px;
+  }
+  .field-input {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    min-height: 70px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    font-size: 11pt;
+    font-family: 'Calibri', 'Arial', sans-serif;
+    color: #111;
+    background: #fafafa;
+  }
+  .field-input.short {
+    min-height: 36px;
+  }
+  .field-input.tall {
+    min-height: 100px;
+  }
+
+  /* Placement blocks */
+  .placement-block {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    background: #fafafa;
+  }
+  .placement-header {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .placement-number {
+    font-size: 8pt;
+    color: #888;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Signature / footer */
+  .footer {
+    margin-top: 60px;
+    border-top: 1px solid #ccc;
+    padding-top: 24px;
+    display: flex;
+    gap: 60px;
+  }
+  .sig-block {
+    flex: 1;
+  }
+  .sig-line {
+    border-bottom: 1px solid #aaa;
+    min-height: 32px;
+    margin-top: 4px;
+  }
+  .sig-label {
+    font-size: 8pt;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  @media print {
+    .page { padding: 40px; }
+    .field-input { background: white; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">The Peak</div>
+    <div class="doc-title">Newsletter Ad Onboarding</div>
+    <div class="doc-subtitle">Complete and return this form so our team can draft your newsletter ad copy.</div>
+    <div class="meta-row">
+      <div class="meta-field">
+        <div class="meta-label">Client / Brand Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Campaign Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Date</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <div class="meta-field">
+        <div class="meta-label">Contact Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Contact Email</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Completed By</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="instructions">
+    <strong>How to use this form:</strong> Fill in each field below as completely as possible — the more detail you share, the better our copy will be. When complete, reply to your Peak contact with the filled-in document (or just paste your answers by email). <strong>The two required fields are Campaign Objective and Call to Action.</strong> Everything else is optional but helpful.
+  </div>
+
+  <!-- Section 1: Campaign Brief -->
+  <div class="section">
+    <div class="section-title">Campaign Brief</div>
+
+    <div class="field">
+      <div class="field-label">1. Campaign Objective <span style="color:#c00">*</span></div>
+      <div class="field-hint">What do you want to accomplish with this advertisement? Be specific — what outcome are you driving toward?</div>
+      <div class="field-input tall">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">2. Call to Action <span style="color:#c00">*</span></div>
+      <div class="field-hint">What action should readers take after seeing this ad? E.g. "Visit our site", "Sign up for a free trial", "Use code PEAK for 20% off".</div>
+      <div class="field-input">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">3. Anything else we should know? <span style="color:#888;font-weight:400">(optional)</span></div>
+      <div class="field-hint">Extra context, brand voice notes, things to avoid, legal disclaimers, or any preferences that will help us write better copy.</div>
+      <div class="field-input tall">&nbsp;</div>
+    </div>
+  </div>
+
+  <!-- Section 2: Placements -->
+  <div class="section">
+    <div class="section-title">Placement-Specific Notes <span style="font-size:9pt;font-weight:400;color:#888">(optional)</span></div>
+    <p style="font-size:10pt;color:#555;margin-top:-10px;margin-bottom:18px;">If you have notes specific to a particular placement — different angle, different audience, different offer — add them here. Otherwise, we'll use your campaign brief above.</p>
+
+    <!-- Repeat/duplicate this block for each placement -->
+    <div class="placement-block">
+      <div class="placement-header">
+        <span>Placement 1</span>
+        <span class="placement-number">Type / Publication: _____________________ &nbsp;&nbsp; Run Date: _____________</span>
+      </div>
+      <div class="field-label" style="font-size:9pt;">Notes for this placement</div>
+      <div class="field-input" style="min-height:55px;margin-top:4px;">&nbsp;</div>
+    </div>
+
+    <div class="placement-block">
+      <div class="placement-header">
+        <span>Placement 2</span>
+        <span class="placement-number">Type / Publication: _____________________ &nbsp;&nbsp; Run Date: _____________</span>
+      </div>
+      <div class="field-label" style="font-size:9pt;">Notes for this placement</div>
+      <div class="field-input" style="min-height:55px;margin-top:4px;">&nbsp;</div>
+    </div>
+
+    <div class="placement-block">
+      <div class="placement-header">
+        <span>Placement 3</span>
+        <span class="placement-number">Type / Publication: _____________________ &nbsp;&nbsp; Run Date: _____________</span>
+      </div>
+      <div class="field-label" style="font-size:9pt;">Notes for this placement</div>
+      <div class="field-input" style="min-height:55px;margin-top:4px;">&nbsp;</div>
+    </div>
+
+    <p style="font-size:9pt;color:#888;font-style:italic;">Add or remove placement blocks as needed.</p>
+  </div>
+
+  <!-- Footer / Return instructions -->
+  <div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:14px 18px;font-size:9.5pt;color:#555;margin-top:20px;">
+    <strong style="color:#111;">Return this form to your Peak contact.</strong> Once we receive your answers, we'll begin drafting your ad copy and send it for your review.
+  </div>
+
+  <!-- Signature block -->
+  <div class="footer">
+    <div class="sig-block">
+      <div class="field-label">Completed by</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Name / Title</div>
+    </div>
+    <div class="sig-block">
+      <div class="field-label">Date</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Date completed</div>
+    </div>
+    <div class="sig-block">
+      <div class="field-label">Returned to</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Peak contact name</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

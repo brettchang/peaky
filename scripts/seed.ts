@@ -5,6 +5,11 @@ import { drizzle } from "drizzle-orm/vercel-postgres";
 import * as schema from "../lib/db/schema";
 
 const db = drizzle(sql, { schema });
+const CAMPAIGN_PORTAL_IDS = {
+  "campaign-001": "portal-felix-1646",
+  "campaign-002": "portal-felix-1702",
+  "campaign-003": "portal-greenline-2201",
+} as const;
 
 async function seed() {
   console.log("Seeding database...");
@@ -31,6 +36,7 @@ async function seed() {
     {
       id: "campaign-001",
       name: "Felix Health 1646",
+      portalId: CAMPAIGN_PORTAL_IDS["campaign-001"],
       clientId: "client-001",
       status: "Active",
       campaignManager: "Matheus",
@@ -46,6 +52,7 @@ async function seed() {
     {
       id: "campaign-002",
       name: "Felix Health 1702",
+      portalId: CAMPAIGN_PORTAL_IDS["campaign-002"],
       clientId: "client-001",
       status: "Placements Completed",
       campaignManager: "Will",
@@ -60,6 +67,7 @@ async function seed() {
     {
       id: "campaign-003",
       name: "Greenline Supplements 2201",
+      portalId: CAMPAIGN_PORTAL_IDS["campaign-003"],
       clientId: "client-002",
       status: "Active",
       campaignManager: "Matheus",
@@ -82,8 +90,7 @@ async function seed() {
     {
       id: "billing-001",
       campaignId: "campaign-001",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-001&form_type=billing",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-001"]}/campaign-001`,
       complete: true,
       completedAt: new Date("2026-02-16T14:00:00Z"),
       billingContactName: "Sarah Chen",
@@ -99,8 +106,7 @@ async function seed() {
     {
       id: "billing-002",
       campaignId: "campaign-002",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-002&form_type=billing",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-002"]}/campaign-002`,
       complete: true,
       completedAt: new Date("2026-01-22T10:00:00Z"),
       billingContactName: "Sarah Chen",
@@ -116,8 +122,7 @@ async function seed() {
     {
       id: "billing-003",
       campaignId: "campaign-003",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-003&form_type=billing",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-003"]}/campaign-003`,
       complete: false,
     },
   ]);
@@ -129,8 +134,7 @@ async function seed() {
       id: "round-001",
       campaignId: "campaign-001",
       label: "Initial Round",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-001&round_id=round-001",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-001"]}/campaign-001`,
       complete: true,
       onboardingDocUrl: "https://docs.google.com/document/d/felix-1646",
       createdAt: new Date("2026-02-15T10:00:00Z"),
@@ -139,8 +143,7 @@ async function seed() {
       id: "round-002",
       campaignId: "campaign-002",
       label: "Initial Round",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-002&round_id=round-002",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-002"]}/campaign-002`,
       complete: true,
       onboardingDocUrl: "https://docs.google.com/document/d/felix-1702",
       createdAt: new Date("2026-01-20T10:00:00Z"),
@@ -149,8 +152,7 @@ async function seed() {
       id: "round-003",
       campaignId: "campaign-003",
       label: "Initial Round",
-      filloutLink:
-        "https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=campaign-003&round_id=round-003",
+      formLink: `http://localhost:3000/portal/${CAMPAIGN_PORTAL_IDS["campaign-003"]}/campaign-003`,
       complete: true,
       onboardingDocUrl: "https://docs.google.com/document/d/greenline-2201",
       createdAt: new Date("2026-02-10T10:00:00Z"),

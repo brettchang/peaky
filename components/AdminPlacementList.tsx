@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Placement,
   OnboardingRound,
   AdLineItem,
+  DateRangeCapacity,
   PODCAST_PUBLICATION,
   getPlacementStatusesFor,
   isClientReviewStatus,
@@ -17,12 +18,24 @@ import { AddPlacementForm } from "@/components/AddPlacementForm";
 import { CopyEditor } from "@/components/CopyEditor";
 import { InvoiceLinkModal } from "@/components/InvoiceLinkModal";
 import { InvoiceStatusBadge } from "@/components/InvoiceStatusBadge";
+import { StatusBadge } from "@/components/StatusBadge";
+import {
+  ADMIN_SCHEDULE_WINDOW_DAYS,
+  ensureDateOption,
+  getPlacementAvailableCapacityDates,
+  getTodayDateKey,
+} from "@/lib/schedule-capacity";
+
+function isPodcastRollType(type: Placement["type"]): boolean {
+  return type === ":30 Pre-Roll" || type === ":30 Mid-Roll";
+}
 
 interface AdminPlacementListProps {
   placements: Placement[];
   campaignId: string;
   portalUrl: string;
   onboardingRounds?: OnboardingRound[];
+  isEvergreen?: boolean;
   invoiceLinksByPlacement?: Record<string, PlacementInvoiceLink[]>;
   adLineItems?: AdLineItem[];
   xeroConnected?: boolean;
@@ -33,6 +46,7 @@ export function AdminPlacementList({
   campaignId,
   portalUrl,
   onboardingRounds,
+  isEvergreen = false,
   invoiceLinksByPlacement = {},
   adLineItems = [],
   xeroConnected = false,
@@ -49,8 +63,78 @@ export function AdminPlacementList({
   const [syncMessages, setSyncMessages] = useState<
     Record<string, { type: "error" | "success"; text: string }>
   >({});
+  const [dateMessages, setDateMessages] = useState<
+    Record<string, { type: "error" | "success"; text: string }>
+  >({});
+  const [dateDrafts, setDateDrafts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      placements.map((placement) => [placement.id, placement.scheduledDate ?? ""])
+    )
+  );
+  const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [invoiceModalPlacementId, setInvoiceModalPlacementId] = useState<string | null>(null);
   const [unlinkingInvoiceId, setUnlinkingInvoiceId] = useState<string | null>(null);
+  const todayKey = useMemo(() => getTodayDateKey(), []);
+
+  useEffect(() => {
+    setDateDrafts(
+      Object.fromEntries(
+        placements.map((placement) => [placement.id, placement.scheduledDate ?? ""])
+      )
+    );
+  }, [placements]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const toDateKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + ADMIN_SCHEDULE_WINDOW_DAYS);
+
+    setCapacityLoading(true);
+    setCapacityError(null);
+
+    fetch(
+      `/api/schedule-capacity?startDate=${toDateKey(start)}&endDate=${toDateKey(end)}`
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to load available dates");
+        }
+        return (await res.json()) as DateRangeCapacity;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setCapacityDays(data.days || []);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCapacityError(
+          error instanceof Error ? error.message : "Failed to load available dates"
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCapacityLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleCopyPortalLink() {
     await navigator.clipboard.writeText(portalUrl);
@@ -158,7 +242,64 @@ export function AdminPlacementList({
     }
   }
 
-  async function handleDateChange(placementId: string, value: string) {
+  async function handleDeletePlacement(placementId: string) {
+    setDeletingId(placementId);
+    try {
+      const res = await fetch("/api/delete-placement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, placementId }),
+      });
+      if (res.ok) {
+        setConfirmDeleteId(null);
+        if (expandedId === placementId) {
+          setExpandedId(null);
+        }
+        router.refresh();
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function formatDateLabel(date: string): string {
+    return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function getAvailableDateOptions(placement: Placement): string[] {
+    return ensureDateOption(
+      getPlacementAvailableCapacityDates({
+        capacityDays,
+        placement,
+        todayKey,
+        getReservedCount: (date) =>
+          placements.filter((candidate) => {
+            if (candidate.id === placement.id) return false;
+            return (
+              candidate.scheduledDate === date &&
+              candidate.type === placement.type &&
+              candidate.publication === placement.publication
+            );
+          }).length,
+      }),
+      placement.scheduledDate
+    );
+  }
+
+  async function handleDateChange(placement: Placement, value: string) {
+    const placementId = placement.id;
+    setDateDrafts((prev) => ({ ...prev, [placementId]: value }));
+    setDateMessages((prev) => {
+      const next = { ...prev };
+      delete next[placementId];
+      return next;
+    });
+
     setUpdatingId(placementId);
     try {
       const res = await fetch("/api/update-placement", {
@@ -171,7 +312,25 @@ export function AdminPlacementList({
         }),
       });
       if (res.ok) {
+        setDateMessages((prev) => {
+          const next = { ...prev };
+          delete next[placementId];
+          return next;
+        });
         router.refresh();
+      } else {
+        const data = await res.json();
+        setDateDrafts((prev) => ({
+          ...prev,
+          [placementId]: placement.scheduledDate ?? "",
+        }));
+        setDateMessages((prev) => ({
+          ...prev,
+          [placementId]: {
+            type: "error",
+            text: data.error || "Failed to update date",
+          },
+        }));
       }
     } finally {
       setUpdatingId(null);
@@ -317,14 +476,23 @@ export function AdminPlacementList({
     }
   }
 
-  const hasOnboardingRounds = (onboardingRounds?.length ?? 0) > 0;
+  const hasOnboardingRounds = !isEvergreen && (onboardingRounds?.length ?? 0) > 0;
   const roundIdSet = new Set((onboardingRounds ?? []).map((round) => round.id));
   const groupedSections: Array<{
     key: string;
     title?: string;
     subtitle?: string;
     placements: Placement[];
-  }> = hasOnboardingRounds
+  }> = isEvergreen
+    ? [
+        {
+          key: "evergreen",
+          title: "Evergreen Placements",
+          subtitle: "Ready-to-publish placements",
+          placements,
+        },
+      ]
+    : hasOnboardingRounds
     ? [
         ...(onboardingRounds ?? [])
           .map((round) => ({
@@ -358,7 +526,11 @@ export function AdminPlacementList({
           Placements ({placements.length})
         </h2>
         <div className="flex items-center gap-2">
-          <AddPlacementForm campaignId={campaignId} onboardingRounds={onboardingRounds} />
+          <AddPlacementForm
+            campaignId={campaignId}
+            onboardingRounds={onboardingRounds}
+            isEvergreen={isEvergreen}
+          />
           <button
             onClick={handleCopyPortalLink}
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -369,7 +541,20 @@ export function AdminPlacementList({
       </div>
 
       <div className="space-y-6">
-        {groupedSections.map((section) => (
+        {groupedSections
+          .map((section) => ({
+            ...section,
+            placements: sortPlacementsByScheduledDate(section.placements, todayKey),
+          }))
+          .sort((a, b) => {
+            const aFirst = a.placements[0];
+            const bFirst = b.placements[0];
+            if (!aFirst && !bFirst) return 0;
+            if (!aFirst) return 1;
+            if (!bFirst) return -1;
+            return compareScheduledDateOrder(aFirst, bFirst, todayKey);
+          })
+          .map((section) => (
           <div key={section.key} className="space-y-3">
             {section.title && (
               <div className="px-1">
@@ -398,28 +583,33 @@ export function AdminPlacementList({
                           <div className="flex flex-wrap items-center gap-2.5">
                             <Link
                               href={`/dashboard/${campaignId}/${placement.id}`}
+                              prefetch={false}
                               className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
                             >
                               {placement.name}
                             </Link>
-                            <select
-                              value={placement.status}
-                              disabled={updatingId === placement.id}
-                              onChange={(e) =>
-                                handleStatusChange(placement.id, e.target.value)
-                              }
-                              className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
-                            >
-                              {getPlacementStatusesFor(
-                                placement.type,
-                                placement.publication
-                              ).map((s) => (
-                                <option key={s} value={s}>
-                                  {s}
-                                </option>
-                              ))}
-                            </select>
-                            {isClientReviewStatus(placement.status) && (
+                            {isEvergreen ? (
+                              <StatusBadge status="Approved" />
+                            ) : (
+                              <select
+                                value={placement.status}
+                                disabled={updatingId === placement.id}
+                                onChange={(e) =>
+                                  handleStatusChange(placement.id, e.target.value)
+                                }
+                                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
+                              >
+                                {getPlacementStatusesFor(
+                                  placement.type,
+                                  placement.publication
+                                ).map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {!isEvergreen && isClientReviewStatus(placement.status) && (
                               <button
                                 onClick={() => {
                                   const nextStatus =
@@ -462,6 +652,13 @@ export function AdminPlacementList({
                                 {placement.interviewScheduled ? "Scheduled" : "Not Scheduled"}
                               </span>
                             )}
+                            {isPodcastRollType(placement.type) &&
+                              placement.committedImpressions != null && (
+                                <span className="rounded bg-gray-100 px-2 py-1">
+                                  Committed:{" "}
+                                  {placement.committedImpressions.toLocaleString()}
+                                </span>
+                              )}
                           </div>
                         </div>
 
@@ -475,16 +672,27 @@ export function AdminPlacementList({
                                 ? "Start:"
                                 : "Scheduled:"}
                             </label>
-                            <input
+                            <select
                               id={`date-${placement.id}`}
-                              type="date"
-                              defaultValue={placement.scheduledDate ?? ""}
-                              disabled={updatingId === placement.id}
+                              value={dateDrafts[placement.id] ?? ""}
+                              disabled={updatingId === placement.id || capacityLoading}
                               onChange={(e) =>
-                                handleDateChange(placement.id, e.target.value)
+                                handleDateChange(placement, e.target.value)
                               }
                               className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
-                            />
+                            >
+                              <option value="">No date</option>
+                              {getAvailableDateOptions(placement).length === 0 && (
+                                <option value="" disabled>
+                                  No dates in next 12 months
+                                </option>
+                              )}
+                              {getAvailableDateOptions(placement).map((date) => (
+                                <option key={date} value={date}>
+                                  {formatDateLabel(date)}
+                                </option>
+                              ))}
+                            </select>
                             {placement.publication === PODCAST_PUBLICATION && (
                               <>
                                 <label className="text-sm text-gray-500">End:</label>
@@ -516,7 +724,47 @@ export function AdminPlacementList({
                               </label>
                             )}
                           </div>
-                          <div className="flex justify-end">
+                          {dateMessages[placement.id] && (
+                            <p
+                              className={`text-xs ${
+                                dateMessages[placement.id].type === "error"
+                                  ? "text-red-600"
+                                  : "text-green-600"
+                              }`}
+                            >
+                              {dateMessages[placement.id].text}
+                            </p>
+                          )}
+                          {!dateMessages[placement.id] && capacityError && (
+                            <p className="text-xs text-red-600">{capacityError}</p>
+                          )}
+                          <div className="flex items-center justify-end gap-3">
+                            {confirmDeleteId === placement.id ? (
+                              <span className="flex items-center gap-2 text-xs">
+                                <span className="text-red-600">Delete placement?</span>
+                                <button
+                                  onClick={() => handleDeletePlacement(placement.id)}
+                                  disabled={deletingId === placement.id}
+                                  className="font-medium text-red-600 hover:text-red-800 disabled:opacity-50"
+                                >
+                                  {deletingId === placement.id ? "Deleting..." : "Yes, delete"}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  disabled={deletingId === placement.id}
+                                  className="font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDeleteId(placement.id)}
+                                className="text-xs font-medium text-red-400 hover:text-red-600"
+                              >
+                                Delete
+                              </button>
+                            )}
                             <button
                               onClick={() =>
                                 setExpandedId(isExpanded ? null : placement.id)
@@ -755,7 +1003,8 @@ export function AdminPlacementList({
                             </div>
                           )}
 
-                        {(placement.status === "Copywriting in Progress" ||
+                        {!isEvergreen &&
+                          (placement.status === "Copywriting in Progress" ||
                           placement.status === "New Campaign" ||
                           placement.status === "Drafting Script" ||
                           placement.status === "Drafting Questions" ||
@@ -812,4 +1061,42 @@ export function AdminPlacementList({
       )}
     </div>
   );
+}
+
+function sortPlacementsByScheduledDate(
+  placements: Placement[],
+  todayKey: string
+): Placement[] {
+  return [...placements]
+    .map((placement, index) => ({ placement, index }))
+    .sort((a, b) => compareScheduledDateOrder(a.placement, b.placement, todayKey, a.index, b.index))
+    .map((entry) => entry.placement);
+}
+
+function compareScheduledDateOrder(
+  a: Placement,
+  b: Placement,
+  todayKey: string,
+  aIndex = 0,
+  bIndex = 0
+): number {
+  const aDate = a.scheduledDate;
+  const bDate = b.scheduledDate;
+
+  if (!aDate && !bDate) return aIndex - bIndex;
+  if (!aDate) return 1;
+  if (!bDate) return -1;
+
+  const aIsUpcoming = aDate >= todayKey;
+  const bIsUpcoming = bDate >= todayKey;
+  if (aIsUpcoming !== bIsUpcoming) return aIsUpcoming ? -1 : 1;
+
+  if (aIsUpcoming && bIsUpcoming) {
+    if (aDate !== bDate) return aDate.localeCompare(bDate);
+  } else if (aDate !== bDate) {
+    // Keep past placements nearest to today before older ones.
+    return bDate.localeCompare(aDate);
+  }
+
+  return aIndex - bIndex;
 }

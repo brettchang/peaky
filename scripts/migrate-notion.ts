@@ -6,7 +6,13 @@ import { sql } from "@vercel/postgres";
 import { drizzle } from "drizzle-orm/vercel-postgres";
 import * as schema from "../lib/db/schema";
 import { generatePortalId } from "../lib/client-ids";
-import type { CampaignStatus, PlacementStatus, PlacementType, Publication } from "../lib/types";
+import {
+  isCampaignManager,
+  type CampaignStatus,
+  type PlacementStatus,
+  type PlacementType,
+  type Publication,
+} from "../lib/types";
 
 type NotionPropertyValue = {
   type: string;
@@ -38,6 +44,14 @@ const NOTION_API_KEY = process.env.NOTION_API_KEY;
 
 const IS_DRY_RUN = process.argv.includes("--dry-run");
 const TODAY = new Date().toISOString().slice(0, 10);
+const BASE_URL = (process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000").replace(
+  /\/$/,
+  ""
+);
+
+function normalizeCampaignManager(value?: string): "Matheus" | "Brett" | "Will" {
+  return value && isCampaignManager(value) ? value : "Brett";
+}
 
 function compactId(id: string): string {
   return id.replace(/-/g, "");
@@ -146,8 +160,8 @@ function normalizeCampaignStatus(input?: string): CampaignStatus {
   if (value.includes("active")) return "Active";
   if (value.includes("placement") && value.includes("complete")) return "Placements Completed";
   if (value.includes("wrap")) return "Wrapped";
-  if (value.includes("onboarding") && value.includes("complete")) return "Onboarding Form Complete";
-  return "Waiting on Onboarding";
+  if (value.includes("onboarding") && value.includes("complete")) return "Active";
+  return "Waiting for onboarding";
 }
 
 function normalizePlacementStatus(input?: string): PlacementStatus {
@@ -257,8 +271,14 @@ async function migrate() {
   console.log(`Found ${adPages.length} placements in Notion (${upcomingAdPages.length} upcoming for active campaigns).`);
 
   const existingClients = await db.query.clients.findMany();
+  const existingCampaigns = await db.query.campaigns.findMany({
+    columns: { id: true, portalId: true },
+  });
   const clientIdByName = new Map(
     existingClients.map((c) => [c.name.trim().toLowerCase(), c.id])
+  );
+  const existingCampaignPortalIdById = new Map(
+    existingCampaigns.map((c) => [c.id, c.portalId])
   );
 
   const localCampaignIdByNotionId = new Map<string, string>();
@@ -271,6 +291,8 @@ async function migrate() {
   for (const campaignPage of activeCampaignPages) {
     const notionCampaignId = compactId(campaignPage.id);
     const campaignId = `campaign-notion-${notionCampaignId}`;
+    const campaignPortalId =
+      existingCampaignPortalIdById.get(campaignId) ?? generatePortalId();
 
     const campaignName =
       getTitle(campaignPage.properties, ["Campaign Name", "Name", "Campaign"]) ||
@@ -285,11 +307,12 @@ async function migrate() {
 
     if (!clientId) {
       clientId = `client-notion-${notionCampaignId.slice(0, 12)}`;
+      const portalId = generatePortalId();
       if (!IS_DRY_RUN) {
         await db.insert(schema.clients).values({
           id: clientId,
           name: clientName,
-          portalId: generatePortalId(),
+          portalId,
         });
       }
       clientIdByName.set(clientKey, clientId);
@@ -299,11 +322,13 @@ async function migrate() {
     const rawStatus = getStatus(campaignPage.properties, ["Status", "Campaign Status", "status"]);
     const campaignStatus = normalizeCampaignStatus(rawStatus);
 
-    const campaignManager = getText(campaignPage.properties, [
-      "Campaign Manager",
-      "CM",
-      "Campaign Owner",
-    ]);
+    const campaignManager = normalizeCampaignManager(
+      getText(campaignPage.properties, [
+        "Campaign Manager",
+        "CM",
+        "Campaign Owner",
+      ])
+    );
     const contactName = getText(campaignPage.properties, [
       "Primary Contact",
       "Contact",
@@ -321,9 +346,10 @@ async function migrate() {
         .values({
           id: campaignId,
           name: campaignName,
+          portalId: campaignPortalId,
           clientId,
           status: campaignStatus,
-          campaignManager: campaignManager ?? null,
+          campaignManager,
           contactName: contactName ?? null,
           contactEmail: contactEmail ?? null,
           createdAt: new Date(campaignPage.created_time),
@@ -334,7 +360,7 @@ async function migrate() {
             name: campaignName,
             clientId,
             status: campaignStatus,
-            campaignManager: campaignManager ?? null,
+            campaignManager,
             contactName: contactName ?? null,
             contactEmail: contactEmail ?? null,
           },
@@ -348,13 +374,13 @@ async function migrate() {
         .values({
           id: `billing-notion-${notionCampaignId}`,
           campaignId,
-          filloutLink: `https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=${campaignId}&form_type=billing`,
+          formLink: `${BASE_URL}/portal/${campaignPortalId}/${campaignId}`,
           complete: false,
         })
         .onConflictDoUpdate({
           target: schema.billingOnboarding.campaignId,
           set: {
-            filloutLink: `https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=${campaignId}&form_type=billing`,
+            formLink: `${BASE_URL}/portal/${campaignPortalId}/${campaignId}`,
           },
         });
     }

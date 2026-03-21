@@ -15,6 +15,8 @@ interface BillingOnboardingFormProps {
   initialBillingAddress?: string;
   initialBillingContactName?: string;
   initialBillingContactEmail?: string;
+  initialIoSigningContactName?: string;
+  initialIoSigningContactEmail?: string;
   initialSpecificInvoicingInstructions?: string;
 }
 
@@ -30,6 +32,8 @@ export function BillingOnboardingForm({
   initialBillingAddress,
   initialBillingContactName,
   initialBillingContactEmail,
+  initialIoSigningContactName,
+  initialIoSigningContactEmail,
   initialSpecificInvoicingInstructions,
 }: BillingOnboardingFormProps) {
   const router = useRouter();
@@ -53,6 +57,12 @@ export function BillingOnboardingForm({
   const [billingContactEmail, setBillingContactEmail] = useState(
     initialBillingContactEmail || ""
   );
+  const [ioSigningContactName, setIoSigningContactName] = useState(
+    initialIoSigningContactName || ""
+  );
+  const [ioSigningContactEmail, setIoSigningContactEmail] = useState(
+    initialIoSigningContactEmail || ""
+  );
   const [specificInvoicingInstructions, setSpecificInvoicingInstructions] =
     useState(initialSpecificInvoicingInstructions || "");
   const [saving, setSaving] = useState(false);
@@ -75,6 +85,8 @@ export function BillingOnboardingForm({
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
       specificInvoicingInstructions,
     };
   }
@@ -111,6 +123,8 @@ export function BillingOnboardingForm({
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
     ];
     if (requiredFields.some((field) => !field.trim())) {
       setError("Please complete all required fields before submitting.");
@@ -228,6 +242,25 @@ export function BillingOnboardingForm({
             type="email"
             value={billingContactEmail}
             onChange={(e) => setBillingContactEmail(e.target.value)}
+            readOnly={isReadOnly}
+            className={inputClassName(isReadOnly)}
+          />
+        </Field>
+
+        <Field label="IO Signing Contact Name" required>
+          <input
+            value={ioSigningContactName}
+            onChange={(e) => setIoSigningContactName(e.target.value)}
+            readOnly={isReadOnly}
+            className={inputClassName(isReadOnly)}
+          />
+        </Field>
+
+        <Field label="IO Signing Contact Email" required>
+          <input
+            type="email"
+            value={ioSigningContactEmail}
+            onChange={(e) => setIoSigningContactEmail(e.target.value)}
             readOnly={isReadOnly}
             className={inputClassName(isReadOnly)}
           />

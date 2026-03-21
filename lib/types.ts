@@ -20,11 +20,15 @@ export type PlacementStatus =
 
 // === Notion Campaigns DB statuses (campaign-level) ===
 export type CampaignStatus =
-  | "Waiting on Onboarding"
-  | "Onboarding Form Complete"
+  | "Onboarding to be sent"
+  | "Waiting for onboarding"
   | "Active"
   | "Placements Completed"
   | "Wrapped";
+
+export type CampaignCategory = "Standard" | "Evergreen";
+export const CAMPAIGN_MANAGERS = ["Matheus", "Brett", "Will"] as const;
+export type CampaignManager = (typeof CAMPAIGN_MANAGERS)[number];
 
 // === Client-facing placement statuses ===
 export type ClientDisplayStatus =
@@ -106,7 +110,7 @@ export const PODCAST_PLACEMENT_TYPES: PlacementType[] = [
 export const DAILY_CAPACITY_LIMITS: Record<PlacementType, number | null> = {
   Primary: 1,
   Secondary: 1,
-  "Peak Picks": 4,
+  "Peak Picks": 1,
   Beehiv: null,
   "Smart Links": null,
   BLS: null,
@@ -182,6 +186,10 @@ export function isPodcastInterviewType(type: PlacementType): boolean {
   return type === "15 Minute Interview";
 }
 
+export function isAiCopyGeneratableType(type: PlacementType): boolean {
+  return !isPodcastInterviewType(type);
+}
+
 export function isPodcastPlacement(type: PlacementType, publication: Publication): boolean {
   return (
     isPodcastPublication(publication) ||
@@ -189,6 +197,15 @@ export function isPodcastPlacement(type: PlacementType, publication: Publication
     type === ":30 Mid-Roll" ||
     type === "15 Minute Interview"
   );
+}
+
+export function isValidPlacementPublication(
+  type: PlacementType,
+  publication: Publication
+): boolean {
+  const isPodcastType = PODCAST_PLACEMENT_TYPES.includes(type);
+  const isPodcastPub = isPodcastPublication(publication);
+  return isPodcastType === isPodcastPub;
 }
 
 export function getPlacementStatusesFor(
@@ -234,6 +251,10 @@ export function isApprovedStatus(status: PlacementStatus): boolean {
   );
 }
 
+export function isCampaignManager(value: string): value is CampaignManager {
+  return (CAMPAIGN_MANAGERS as readonly string[]).includes(value);
+}
+
 export function getPlacementWorkflowGroup(
   status: PlacementStatus
 ): "needs-action" | "in-review" | "approved" {
@@ -262,11 +283,14 @@ export interface CopyVersion {
 export interface OnboardingRound {
   id: string;
   label?: string;
-  filloutLink: string;
+  formType: OnboardingFormType;
+  formLink: string;
   complete: boolean;
   onboardingDocUrl?: string;
   createdAt: string;
 }
+
+export type OnboardingFormType = "newsletter" | "podcast";
 
 // === Performance stats from Ad Calendar fields ===
 export interface PerformanceStats {
@@ -288,6 +312,7 @@ export interface Placement {
   scheduledDate?: string;             // Ad Calendar "Date"
   scheduledEndDate?: string;
   interviewScheduled?: boolean;
+  committedImpressions?: number;
   status: PlacementStatus;
   currentCopy: string;
   copyVersion: number;
@@ -307,12 +332,28 @@ export interface Placement {
   publishedAt?: string;
 }
 
+export function isClientCopyPlacement(
+  placement: Pick<Placement, "copyProducer">
+): boolean {
+  return placement.copyProducer === "Client";
+}
+
+export function getOnboardingFormTypeForPlacement(
+  placement: Pick<Placement, "type" | "publication">
+): OnboardingFormType {
+  return isPodcastPlacement(placement.type, placement.publication)
+    ? "podcast"
+    : "newsletter";
+}
+
 export interface AdLineItem {
   quantity: number;
   type: PlacementType;
   publication?: Publication;
   pricePerUnit: number;
 }
+
+export type CampaignCurrency = "CAD" | "USD";
 
 // === Invoice cadence types ===
 export type InvoiceCadenceType = "lump-sum" | "equal-monthly" | "per-month-usage";
@@ -338,12 +379,18 @@ export interface PerMonthUsageInvoice {
 export type InvoiceCadence = LumpSumInvoice | EqualMonthlyInvoice | PerMonthUsageInvoice;
 
 export interface BillingOnboarding {
-  filloutLink: string;
+  formLink: string;
   complete: boolean;
   completedAt?: string;
+  primaryContactName?: string;
+  primaryContactEmail?: string;
+  representingClient?: boolean;
+  wantsPeakCopy?: boolean;
   companyName?: string;
   billingContactName?: string;
   billingContactEmail?: string;
+  ioSigningContactName?: string;
+  ioSigningContactEmail?: string;
   billingAddress?: string;
   poNumber?: string;
   invoiceCadence?: InvoiceCadence;
@@ -356,13 +403,27 @@ export interface CampaignContact {
   email: string;
 }
 
+export interface CampaignManagerNote {
+  id: string;
+  campaignId: string;
+  authorName: CampaignManager;
+  body: string;
+  createdAt: string;
+}
+
 export interface Campaign {
   id: string;
   name: string;                       // "Campaign Name"
+  portalId: string;
   clientId: string;
+  category: CampaignCategory;
   status: CampaignStatus;
+  longTermClient?: boolean;
+  complementaryCampaign?: boolean;
   salesPerson?: string;
-  campaignManager?: string;
+  campaignManager: CampaignManager;
+  currency: CampaignCurrency;
+  taxEligible: boolean;
   contactName?: string;
   contactEmail?: string;
   contacts?: CampaignContact[];
@@ -372,16 +433,31 @@ export interface Campaign {
   performanceTableUrl?: string;
   billingOnboarding?: BillingOnboarding;
   notes?: string;
-  onboardingMessaging?: string;
-  onboardingDesiredAction?: string;
+  campaignManagerNotes: CampaignManagerNote[];
+  latestCampaignManagerNote?: CampaignManagerNote;
+  onboardingCampaignObjective?: string;
+  onboardingKeyMessage?: string;
+  onboardingTalkingPoints?: string;
+  onboardingCallToAction?: string;
+  onboardingTargetAudience?: string;
+  onboardingToneGuidelines?: string;
   onboardingSubmittedAt?: string;
   legacyOnboardingDocUrl?: string;
+  pandadocDocumentId?: string;
+  pandadocStatus?: string;
+  pandadocDocumentUrl?: string;
+  pandadocCreatedAt?: string;
   placements: Placement[];
   createdAt: string;
 }
 
 export function isOnboardingEditable(campaign: Campaign): boolean {
-  return campaign.status === "Waiting on Onboarding" || campaign.status === "Onboarding Form Complete";
+  return (
+    campaign.category !== "Evergreen" &&
+    (campaign.status === "Onboarding to be sent" ||
+      campaign.status === "Waiting for onboarding" ||
+      campaign.status === "Active")
+  );
 }
 
 export interface Client {

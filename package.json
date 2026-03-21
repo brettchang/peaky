@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "verify": "npm run lint && npm run build",
     "mcp:start": "tsx mcp-server/index.ts",
     "mcp:dev": "tsx watch mcp-server/index.ts",
     "lint": "next lint",
@@ -18,7 +19,7 @@
     "migrate:notion:copy:dry": "tsx scripts/migrate-notion-copy.ts --dry-run",
     "migrate:notion:copy": "tsx scripts/migrate-notion-copy.ts",
     "migrate:notion:copy:force": "tsx scripts/migrate-notion-copy.ts --force",
-    "email-agent:start": "tsx email-agent/index.ts"
+    "email-worker:start": "tsx email-worker/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -29,6 +30,7 @@
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
     "@vercel/blob": "^2.3.0",
+    "@vercel/functions": "^3.4.3",
     "@vercel/postgres": "^0.10.0",
     "drizzle-orm": "^0.45.1",
     "express": "^5.1.0",

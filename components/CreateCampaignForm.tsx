@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { PlacementType, Publication, PUBLICATIONS } from "@/lib/types";
+import {
+  PlacementType,
+  Publication,
+  PUBLICATIONS,
+  CampaignCategory,
+  CampaignCurrency,
+  PODCAST_PLACEMENT_TYPES,
+  PODCAST_PUBLICATION,
+  CAMPAIGN_MANAGERS,
+} from "@/lib/types";
 
 const AD_UNIT_OPTIONS: Array<{ value: PlacementType; label: string }> = [
   { value: "Primary", label: "Primary (150 words + image + logo)" },
@@ -13,6 +22,8 @@ const AD_UNIT_OPTIONS: Array<{ value: PlacementType; label: string }> = [
   { value: "15 Minute Interview", label: "Podcast 15 Minute Interview" },
 ];
 
+const CURRENCY_OPTIONS: CampaignCurrency[] = ["CAD", "USD"];
+
 interface LineItem {
   quantity: string;
   type: PlacementType | "";
@@ -20,11 +31,26 @@ interface LineItem {
   pricePerUnit: string;
 }
 
+function getAllowedPublicationsForType(type: PlacementType | ""): Publication[] {
+  if (!type) return PUBLICATIONS.map((p) => p.value);
+  return PODCAST_PLACEMENT_TYPES.includes(type)
+    ? [PODCAST_PUBLICATION]
+    : PUBLICATIONS.filter((p) => p.value !== PODCAST_PUBLICATION).map((p) => p.value);
+}
+
+function getAllowedTypesForPublication(publication: Publication | ""): PlacementType[] {
+  if (!publication) return AD_UNIT_OPTIONS.map((t) => t.value);
+  return publication === PODCAST_PUBLICATION
+    ? AD_UNIT_OPTIONS.map((t) => t.value).filter((t) => PODCAST_PLACEMENT_TYPES.includes(t))
+    : AD_UNIT_OPTIONS.map((t) => t.value).filter((t) => !PODCAST_PLACEMENT_TYPES.includes(t));
+}
+
 export function CreateCampaignForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [category, setCategory] = useState<CampaignCategory>("Standard");
   const [lineItems, setLineItems] = useState<LineItem[]>([
     { quantity: "", type: "", publication: "", pricePerUnit: "" },
   ]);
@@ -42,11 +68,31 @@ export function CreateCampaignForm() {
 
   function updateLineItem(index: number, field: keyof LineItem, value: string) {
     const updated = [...lineItems];
-    updated[index] = { ...updated[index], [field]: value };
+    const current = updated[index];
+
+    if (field === "type") {
+      const nextType = value as PlacementType | "";
+      const allowedPublications = getAllowedPublicationsForType(nextType);
+      const nextPublication = allowedPublications.includes(current.publication as Publication)
+        ? current.publication
+        : allowedPublications[0];
+      updated[index] = { ...current, type: nextType, publication: nextPublication };
+    } else if (field === "publication") {
+      const nextPublication = value as Publication | "";
+      const allowedTypes = getAllowedTypesForPublication(nextPublication);
+      const nextType = allowedTypes.includes(current.type as PlacementType)
+        ? current.type
+        : allowedTypes[0];
+      updated[index] = { ...current, publication: nextPublication, type: nextType };
+    } else {
+      updated[index] = { ...current, [field]: value };
+    }
+
     setLineItems(updated);
   }
 
   function resetForm() {
+    setCategory("Standard");
     setLineItems([{ quantity: "", type: "", publication: "", pricePerUnit: "" }]);
     setError(null);
   }
@@ -69,32 +115,41 @@ export function CreateCampaignForm() {
         pricePerUnit: Number(li.pricePerUnit) || 0,
       }));
 
-    const res = await fetch("/api/create-campaign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientName: formData.get("clientName"),
-        name: formData.get("name"),
-        salesPerson: formData.get("salesPerson") || undefined,
-        campaignManager: formData.get("campaignManager") || undefined,
-        contactName: formData.get("contactName") || undefined,
-        contactEmail: formData.get("contactEmail") || undefined,
-        adLineItems: adLineItems.length > 0 ? adLineItems : undefined,
-        notes: formData.get("notes") || undefined,
-      }),
-    });
+    try {
+      const res = await fetch("/api/create-campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName: formData.get("clientName"),
+          name: formData.get("name"),
+          category,
+          salesPerson: formData.get("salesPerson") || undefined,
+          campaignManager: formData.get("campaignManager"),
+          currency: formData.get("currency") || "CAD",
+          taxEligible: formData.get("taxEligible") === "on",
+          contactName: formData.get("contactName") || undefined,
+          contactEmail: formData.get("contactEmail") || undefined,
+          adLineItems: adLineItems.length > 0 ? adLineItems : undefined,
+          notes: formData.get("notes") || undefined,
+        }),
+      });
 
-    const data = await res.json();
-    setSubmitting(false);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
 
-    if (!res.ok) {
-      setError(data.error || "Something went wrong");
-      return;
+      if (!res.ok) {
+        setError((data as { error?: string }).error || "Something went wrong");
+        return;
+      }
+
+      setOpen(false);
+      resetForm();
+      router.push(`/dashboard/${(data as { campaignId: string }).campaignId}`);
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setSubmitting(false);
     }
-
-    setOpen(false);
-    resetForm();
-    router.push(`/dashboard/${data.campaignId}`);
   }
 
   const totalAds = lineItems.reduce(
@@ -146,7 +201,8 @@ export function CreateCampaignForm() {
               </div>
 
               {/* Campaign name */}
-              <div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Campaign Name <span className="text-red-500">*</span>
                 </label>
@@ -157,6 +213,27 @@ export function CreateCampaignForm() {
                   placeholder="e.g. Felix Health 1800"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                 />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Campaign Category
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) =>
+                      setCategory(e.target.value as CampaignCategory)
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  >
+                    <option value="Standard">Standard</option>
+                    <option value="Evergreen">Evergreen</option>
+                  </select>
+                  {category === "Evergreen" && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      No onboarding flow. Placements default to ready-to-publish.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Sales / campaign owners */}
@@ -175,11 +252,18 @@ export function CreateCampaignForm() {
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Campaign Manager
                   </label>
-                  <input
-                    type="text"
+                  <select
                     name="campaignManager"
+                    required
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                  />
+                    defaultValue={CAMPAIGN_MANAGERS[0]}
+                  >
+                    {CAMPAIGN_MANAGERS.map((manager) => (
+                      <option key={manager} value={manager}>
+                        {manager}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -205,6 +289,35 @@ export function CreateCampaignForm() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Billing settings */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Currency
+                  </label>
+                  <select
+                    name="currency"
+                    defaultValue="CAD"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  >
+                    {CURRENCY_OPTIONS.map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <label className="mt-6 flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    name="taxEligible"
+                    defaultChecked
+                    className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
+                  />
+                  Tax eligible (apply 13% HST)
+                </label>
               </div>
 
               {/* Ad Line Items */}
@@ -236,10 +349,16 @@ export function CreateCampaignForm() {
                   </div>
 
                   {lineItems.map((li, i) => (
+                    // Keep ad unit/publication pairings compatible (newsletter vs podcast).
                     <div
                       key={i}
                       className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-[60px_minmax(0,1fr)_minmax(0,1fr)_100px_28px] md:items-center md:border-0 md:p-0"
                     >
+                      {(() => {
+                        const allowedTypes = getAllowedTypesForPublication(li.publication);
+                        const allowedPublications = getAllowedPublicationsForType(li.type);
+                        return (
+                          <>
                       <div>
                         <label className="mb-1 block text-xs text-gray-500 md:hidden">Qty</label>
                         <input
@@ -263,7 +382,9 @@ export function CreateCampaignForm() {
                           className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                         >
                           <option value="">Select type...</option>
-                          {AD_UNIT_OPTIONS.map((t) => (
+                          {AD_UNIT_OPTIONS.filter((t) =>
+                            allowedTypes.includes(t.value)
+                          ).map((t) => (
                             <option key={t.value} value={t.value}>
                               {t.label}
                             </option>
@@ -280,7 +401,9 @@ export function CreateCampaignForm() {
                           className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                         >
                           <option value="">Select publication...</option>
-                          {PUBLICATIONS.map((p) => (
+                          {PUBLICATIONS.filter((p) =>
+                            allowedPublications.includes(p.value)
+                          ).map((p) => (
                             <option key={p.value} value={p.value}>
                               {p.label}
                             </option>
@@ -315,6 +438,9 @@ export function CreateCampaignForm() {
                       ) : (
                         <span />
                       )}
+                          </>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

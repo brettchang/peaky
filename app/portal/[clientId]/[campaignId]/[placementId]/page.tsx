@@ -5,7 +5,6 @@ import { getPlacementPageData } from "@/lib/db";
 import { getClientDisplayStatus } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyReview } from "@/components/CopyReview";
-import { RevisionHistory } from "@/components/RevisionHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +68,6 @@ export default async function PlacementPage({ params }: PageProps) {
                 ? ` - ${new Date(placement.scheduledEndDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
                 : ""
             }`}
-          {placement.copyVersion > 1 && ` · Version ${placement.copyVersion}`}
         </p>
       </div>
 
@@ -78,8 +76,6 @@ export default async function PlacementPage({ params }: PageProps) {
         campaignId={campaign.id}
         clientPortalId={client.portalId}
       />
-
-      <RevisionHistory versions={placement.revisionHistory} />
     </div>
   );
 }

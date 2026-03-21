@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createOnboardingRound } from "@/lib/db";
+import type { OnboardingFormType } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { campaignId, label } = body;
+  const { campaignId, label, formType } = body;
 
   if (!campaignId) {
     return NextResponse.json(
@@ -13,7 +14,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const round = await createOnboardingRound(campaignId, label || undefined);
+  if (formType && formType !== "newsletter" && formType !== "podcast") {
+    return NextResponse.json(
+      { error: "formType must be 'newsletter' or 'podcast'" },
+      { status: 400 }
+    );
+  }
+
+  const round = await createOnboardingRound(
+    campaignId,
+    label || undefined,
+    (formType as OnboardingFormType | undefined) ?? "newsletter"
+  );
   if (!round) {
     return NextResponse.json(
       { error: "Campaign not found" },

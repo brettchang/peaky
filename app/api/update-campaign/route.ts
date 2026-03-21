@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { updateCampaignMetadata } from "@/lib/db";
+import { CAMPAIGN_MANAGERS, isCampaignManager } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -9,6 +10,18 @@ export async function POST(request: NextRequest) {
   if (!campaignId) {
     return NextResponse.json(
       { error: "campaignId is required" },
+      { status: 400 }
+    );
+  }
+
+  if (
+    fields.campaignManager !== undefined &&
+    !isCampaignManager(fields.campaignManager)
+  ) {
+    return NextResponse.json(
+      {
+        error: `campaignManager must be one of: ${CAMPAIGN_MANAGERS.join(", ")}`,
+      },
       { status: 400 }
     );
   }

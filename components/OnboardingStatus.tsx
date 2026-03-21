@@ -2,8 +2,15 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { OnboardingRound, BillingOnboarding, Placement } from "@/lib/types";
+import {
+  OnboardingRound,
+  BillingOnboarding,
+  Placement,
+  OnboardingFormType,
+  getOnboardingFormTypeForPlacement,
+} from "@/lib/types";
 import { CampaignOnboardingOverrides } from "@/lib/onboarding-overrides";
+import { getBlobViewUrl } from "@/lib/blob-url";
 
 function cadenceLabel(cadence: BillingOnboarding["invoiceCadence"]): string {
   if (!cadence) return "Completed";
@@ -19,18 +26,39 @@ function cadenceLabel(cadence: BillingOnboarding["invoiceCadence"]): string {
 
 function placementLabel(p: Placement): string {
   const date = p.scheduledDate
-    ? ` — ${new Date(p.scheduledDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+    ? ` — ${new Date(`${p.scheduledDate}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
     : "";
   return `${p.type}${date}`;
+}
+
+function placementAssignmentOptionLabel(p: Placement): string {
+  const title = p.name?.trim() || p.type;
+  if (!p.scheduledDate) return title;
+
+  const start = new Date(`${p.scheduledDate}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const end =
+    p.scheduledEndDate && p.scheduledEndDate > p.scheduledDate
+      ? new Date(`${p.scheduledEndDate}T00:00:00`).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : null;
+
+  return `${title} - ${end ? `${start} to ${end}` : start}`;
+}
+
+function formTypeLabel(type: OnboardingFormType): string {
+  return type === "podcast" ? "Podcast Form" : "Newsletter Form";
 }
 
 export function OnboardingStatus({
   rounds,
   campaignId,
-  campaignName,
-  clientName,
-  recipientEmail,
-  recipientName,
   billingOnboarding,
   placements = [],
   onboardingSubmittedAt,
@@ -39,10 +67,6 @@ export function OnboardingStatus({
 }: {
   rounds: OnboardingRound[];
   campaignId: string;
-  campaignName: string;
-  clientName: string;
-  recipientEmail?: string;
-  recipientName?: string;
   billingOnboarding?: BillingOnboarding;
   placements?: Placement[];
   onboardingSubmittedAt?: string;
@@ -53,14 +77,14 @@ export function OnboardingStatus({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showNewRound, setShowNewRound] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  const [newFormType, setNewFormType] = useState<OnboardingFormType>("newsletter");
   const [creating, setCreating] = useState(false);
+  const [editingRoundId, setEditingRoundId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState("");
+  const [savingRoundId, setSavingRoundId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
   const [uploadingBilling, setUploadingBilling] = useState(false);
   const [overridingId, setOverridingId] = useState<string | null>(null);
-  const [sendingCopyUpdateId, setSendingCopyUpdateId] = useState<string | null>(null);
-  const [copyUpdateMessageByRound, setCopyUpdateMessageByRound] = useState<
-    Record<string, { type: "success" | "error"; text: string }>
-  >({});
   const billingFileRef = useRef<HTMLInputElement | null>(null);
 
   const unassigned = placements.filter((p) => !p.onboardingRoundId);
@@ -100,10 +124,12 @@ export function OnboardingStatus({
         body: JSON.stringify({
           campaignId,
           label: newLabel.trim() || undefined,
+          formType: newFormType,
         }),
       });
       if (res.ok) {
         setNewLabel("");
+        setNewFormType("newsletter");
         setShowNewRound(false);
         router.refresh();
       }
@@ -129,6 +155,28 @@ export function OnboardingStatus({
       }
     } finally {
       setAssigning(null);
+    }
+  }
+
+  async function handleRenameRound(roundId: string) {
+    setSavingRoundId(roundId);
+    try {
+      const res = await fetch("/api/update-onboarding-round", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          roundId,
+          label: editingLabel.trim() || undefined,
+        }),
+      });
+      if (res.ok) {
+        setEditingRoundId(null);
+        setEditingLabel("");
+        router.refresh();
+      }
+    } finally {
+      setSavingRoundId(null);
     }
   }
 
@@ -159,49 +207,25 @@ export function OnboardingStatus({
     }
   }
 
-  async function handleSendCopywritingUpdate(roundId: string) {
-    if (!recipientEmail || !portalUrl) return;
-
-    setSendingCopyUpdateId(roundId);
-    setCopyUpdateMessageByRound((prev) => {
-      const next = { ...prev };
-      delete next[roundId];
-      return next;
-    });
+  async function handleRemoveOverride(type: "round" | "billing", roundId?: string) {
+    const id = type === "round" ? roundId ?? "round" : "billing";
+    setOverridingId(id);
     try {
-      const res = await fetch("/api/send-copywriting-update", {
+      const res = await fetch("/api/override-onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaignId,
-          campaignName,
-          clientName,
-          recipientEmail,
-          recipientName,
-          portalCampaignUrl: `${portalUrl}/${campaignId}`,
+          type,
+          roundId,
+          action: "remove",
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to send copywriting update");
+      if (res.ok) {
+        router.refresh();
       }
-      setCopyUpdateMessageByRound((prev) => ({
-        ...prev,
-        [roundId]: { type: "success", text: "Copywriting update sent." },
-      }));
-    } catch (error: unknown) {
-      setCopyUpdateMessageByRound((prev) => ({
-        ...prev,
-        [roundId]: {
-          type: "error",
-          text:
-            error instanceof Error
-              ? error.message
-              : "Failed to send copywriting update",
-        },
-      }));
     } finally {
-      setSendingCopyUpdateId(null);
+      setOverridingId(null);
     }
   }
 
@@ -242,6 +266,9 @@ export function OnboardingStatus({
         const roundPlacements = placements.filter(
           (p) => p.onboardingRoundId === round.id
         );
+        const compatibleUnassigned = unassigned.filter(
+          (p) => getOnboardingFormTypeForPlacement(p) === round.formType
+        );
 
         return (
           <div
@@ -262,16 +289,56 @@ export function OnboardingStatus({
                   {round.complete ? "\u2713" : "!"}
                 </span>
                 <div>
-                  <p
-                    className={`text-sm font-medium ${
-                      round.complete ? "text-green-800" : "text-amber-800"
-                    }`}
-                  >
-                    {round.label || round.id}
-                  </p>
+                  {editingRoundId === round.id ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={editingLabel}
+                        onChange={(e) => setEditingLabel(e.target.value)}
+                        className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900"
+                        placeholder="Round name"
+                      />
+                      <button
+                        onClick={() => handleRenameRound(round.id)}
+                        disabled={savingRoundId === round.id}
+                        className="rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        {savingRoundId === round.id ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingRoundId(null);
+                          setEditingLabel("");
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p
+                        className={`text-sm font-medium ${
+                          round.complete ? "text-green-800" : "text-amber-800"
+                        }`}
+                      >
+                        {round.label || round.id}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setEditingRoundId(round.id);
+                          setEditingLabel(round.label || "");
+                        }}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Rename
+                      </button>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500">
                     {round.complete ? "Submitted" : "Waiting on client"}
                   </p>
+                  <p className="text-xs text-gray-500">{formTypeLabel(round.formType)}</p>
                   {overrides?.rounds?.[round.id] && (
                     <p className="text-xs text-fuchsia-700">
                       Override: {overrides.rounds[round.id].reason}
@@ -297,33 +364,14 @@ export function OnboardingStatus({
                         {copiedId === round.id ? "Copied!" : "Copy Portal Link"}
                       </button>
                     )}
-                    <button
-                      onClick={() => handleSendCopywritingUpdate(round.id)}
-                      disabled={sendingCopyUpdateId === round.id || !recipientEmail}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {sendingCopyUpdateId === round.id
-                        ? "Sending..."
-                        : "Send Copywriting Update"}
-                    </button>
-                    {copyUpdateMessageByRound[round.id] && (
-                      <p
-                        className={`text-xs ${
-                          copyUpdateMessageByRound[round.id].type === "error"
-                            ? "text-red-600"
-                            : "text-green-700"
-                        }`}
-                      >
-                        {copyUpdateMessageByRound[round.id].text}
-                      </p>
-                    )}
-                    {!recipientEmail && (
-                      <p className="text-xs text-amber-700">
-                        Add a contact email first.
-                      </p>
-                    )}
                   </div>
                 )}
+                <button
+                  onClick={() => router.push(`/dashboard/${campaignId}/onboarding/${round.id}`)}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                >
+                  Edit Responses
+                </button>
                 {!round.complete && (
                   <button
                     onClick={() => handleOverride("round", round.id)}
@@ -333,6 +381,15 @@ export function OnboardingStatus({
                     {overridingId === round.id
                       ? "Overriding..."
                       : "Override Complete"}
+                  </button>
+                )}
+                {round.complete && overrides?.rounds?.[round.id] && (
+                  <button
+                    onClick={() => handleRemoveOverride("round", round.id)}
+                    disabled={overridingId === round.id}
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                  >
+                    {overridingId === round.id ? "Removing..." : "Remove Override"}
                   </button>
                 )}
               </div>
@@ -361,7 +418,7 @@ export function OnboardingStatus({
             )}
 
             {/* Assign unassigned placements */}
-            {unassigned.length > 0 && (
+            {compatibleUnassigned.length > 0 && (
               <div className="px-5 pb-3">
                 <select
                   className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600"
@@ -373,10 +430,12 @@ export function OnboardingStatus({
                   }}
                   disabled={assigning !== null}
                 >
-                  <option value="">Assign a placement...</option>
-                  {unassigned.map((p) => (
+                  <option value="">
+                    Assign a {round.formType === "podcast" ? "podcast" : "newsletter"} placement...
+                  </option>
+                  {compatibleUnassigned.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {placementAssignmentOptionLabel(p)}
                     </option>
                   ))}
                 </select>
@@ -395,6 +454,14 @@ export function OnboardingStatus({
             onChange={(e) => setNewLabel(e.target.value)}
             className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
           />
+          <select
+            value={newFormType}
+            onChange={(e) => setNewFormType(e.target.value as OnboardingFormType)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+          >
+            <option value="newsletter">Newsletter Form</option>
+            <option value="podcast">Podcast Form</option>
+          </select>
           <button
             onClick={handleCreateRound}
             disabled={creating}
@@ -406,6 +473,7 @@ export function OnboardingStatus({
             onClick={() => {
               setShowNewRound(false);
               setNewLabel("");
+              setNewFormType("newsletter");
             }}
             className="text-sm text-gray-500 hover:text-gray-700"
           >
@@ -511,9 +579,18 @@ export function OnboardingStatus({
                   </button>
                 </>
               )}
+              {billingOnboarding.complete && overrides?.billing && (
+                <button
+                  onClick={() => handleRemoveOverride("billing")}
+                  disabled={overridingId === "billing"}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  {overridingId === "billing" ? "Removing..." : "Remove Override"}
+                </button>
+              )}
               {billingOnboarding.complete && billingOnboarding.uploadedDocUrl && (
                 <a
-                  href={billingOnboarding.uploadedDocUrl}
+                  href={getBlobViewUrl(billingOnboarding.uploadedDocUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="rounded-lg border border-green-300 bg-white px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"

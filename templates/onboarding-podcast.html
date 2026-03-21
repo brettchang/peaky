@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Podcast Script Onboarding</title>
+<style>
+  body {
+    font-family: 'Calibri', 'Arial', sans-serif;
+    font-size: 11pt;
+    color: #111;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 60px;
+  }
+
+  .header {
+    border-bottom: 2px solid #111;
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+  .brand {
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #111;
+  }
+  .doc-title {
+    font-size: 20pt;
+    font-weight: 700;
+    margin: 10px 0 4px 0;
+    color: #111;
+  }
+  .doc-subtitle {
+    font-size: 10pt;
+    color: #555;
+  }
+  .meta-row {
+    display: flex;
+    gap: 40px;
+    margin-top: 20px;
+  }
+  .meta-field {
+    flex: 1;
+  }
+  .meta-label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    font-weight: 700;
+  }
+  .meta-value {
+    border-bottom: 1px solid #ccc;
+    min-height: 22px;
+    margin-top: 4px;
+    font-size: 11pt;
+    padding-bottom: 2px;
+  }
+
+  .instructions {
+    background: #f5f5f5;
+    border-left: 3px solid #111;
+    padding: 12px 16px;
+    margin-bottom: 32px;
+    font-size: 10pt;
+    color: #444;
+    line-height: 1.5;
+  }
+  .instructions strong {
+    color: #111;
+  }
+
+  .section {
+    margin-bottom: 36px;
+  }
+  .section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #111;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 6px;
+    margin-bottom: 20px;
+  }
+
+  .field {
+    margin-bottom: 22px;
+  }
+  .field-label {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 4px;
+  }
+  .field-hint {
+    font-size: 9pt;
+    color: #888;
+    font-style: italic;
+    margin-bottom: 6px;
+  }
+  .field-input {
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    min-height: 70px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    font-size: 11pt;
+    font-family: 'Calibri', 'Arial', sans-serif;
+    color: #111;
+    background: #fafafa;
+  }
+  .field-input.short {
+    min-height: 36px;
+  }
+  .field-input.tall {
+    min-height: 100px;
+  }
+
+  .placement-block {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+    background: #fafafa;
+  }
+  .placement-header {
+    font-size: 10pt;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .placement-number {
+    font-size: 8pt;
+    color: #888;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .footer {
+    margin-top: 60px;
+    border-top: 1px solid #ccc;
+    padding-top: 24px;
+    display: flex;
+    gap: 60px;
+  }
+  .sig-block {
+    flex: 1;
+  }
+  .sig-line {
+    border-bottom: 1px solid #aaa;
+    min-height: 32px;
+    margin-top: 4px;
+  }
+  .sig-label {
+    font-size: 8pt;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  @media print {
+    .page { padding: 40px; }
+    .field-input { background: white; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">The Peak</div>
+    <div class="doc-title">Podcast Script Onboarding</div>
+    <div class="doc-subtitle">Complete and return this form so our team can write your host-read podcast script.</div>
+    <div class="meta-row">
+      <div class="meta-field">
+        <div class="meta-label">Client / Brand Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Campaign Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Date</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <div class="meta-field">
+        <div class="meta-label">Contact Name</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Contact Email</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+      <div class="meta-field">
+        <div class="meta-label">Placement Type</div>
+        <div class="meta-value">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Instructions -->
+  <div class="instructions">
+    <strong>How to use this form:</strong> All six fields are required for podcast placements. The more detail you provide, the more authentic and on-brand the host read will be. When complete, reply to your Peak contact with this document. We'll draft the script and send it for your approval before recording.
+  </div>
+
+  <!-- Section 1: Script Direction -->
+  <div class="section">
+    <div class="section-title">Script Direction</div>
+
+    <div class="field">
+      <div class="field-label">1. Campaign Objective <span style="color:#c00">*</span></div>
+      <div class="field-hint">What outcome do you want from this campaign? What does success look like?</div>
+      <div class="field-input">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">2. Key Message <span style="color:#c00">*</span></div>
+      <div class="field-hint">What is the single most important thing listeners should remember? If they forgot everything else, what's the one takeaway?</div>
+      <div class="field-input">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">3. Talking Points <span style="color:#c00">*</span></div>
+      <div class="field-hint">List the key points, claims, proof points, differentiators, or features the host should mention. Bullet points are fine.</div>
+      <div class="field-input tall">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">4. Call to Action <span style="color:#c00">*</span></div>
+      <div class="field-hint">What should listeners do after hearing this ad? Include any promo codes, URLs, or specific instructions.</div>
+      <div class="field-input">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">5. Target Audience <span style="color:#c00">*</span></div>
+      <div class="field-hint">Who are you trying to reach? What do they care about? What's their relationship with your product/service?</div>
+      <div class="field-input">&nbsp;</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">6. Tone / Brand Guidelines <span style="color:#c00">*</span></div>
+      <div class="field-hint">Any voice, style, or compliance guidance for the host read. E.g. "Conversational but professional", "Avoid mentioning competitors", "Must include our legal disclaimer: ..."</div>
+      <div class="field-input tall">&nbsp;</div>
+    </div>
+  </div>
+
+  <!-- Section 2: Placement Notes (only relevant for 15-min interviews) -->
+  <div class="section">
+    <div class="section-title">Placement-Specific Notes <span style="font-size:9pt;font-weight:400;color:#888">(optional)</span></div>
+    <p style="font-size:10pt;color:#555;margin-top:-10px;margin-bottom:18px;">If you have multiple placements or any specific notes per slot, add them here.</p>
+
+    <div class="placement-block">
+      <div class="placement-header">
+        <span>Placement 1</span>
+        <span class="placement-number">Type: _____________________ &nbsp;&nbsp; Run Date: _____________</span>
+      </div>
+      <div class="field-label" style="font-size:9pt;">Placement-level notes</div>
+      <div class="field-input" style="min-height:55px;margin-top:4px;">&nbsp;</div>
+    </div>
+
+    <div class="placement-block">
+      <div class="placement-header">
+        <span>Placement 2</span>
+        <span class="placement-number">Type: _____________________ &nbsp;&nbsp; Run Date: _____________</span>
+      </div>
+      <div class="field-label" style="font-size:9pt;">Placement-level notes</div>
+      <div class="field-input" style="min-height:55px;margin-top:4px;">&nbsp;</div>
+    </div>
+
+    <p style="font-size:9pt;color:#888;font-style:italic;">Add or remove placement blocks as needed.</p>
+  </div>
+
+  <!-- Return instructions -->
+  <div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:14px 18px;font-size:9.5pt;color:#555;margin-top:20px;">
+    <strong style="color:#111;">Return this form to your Peak contact.</strong> Once we receive your answers, we'll draft the host-read script and send it to you for review and approval before recording.
+  </div>
+
+  <!-- Signature -->
+  <div class="footer">
+    <div class="sig-block">
+      <div class="field-label">Completed by</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Name / Title</div>
+    </div>
+    <div class="sig-block">
+      <div class="field-label">Date</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Date completed</div>
+    </div>
+    <div class="sig-block">
+      <div class="field-label">Returned to</div>
+      <div class="sig-line">&nbsp;</div>
+      <div class="sig-label">Peak contact name</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

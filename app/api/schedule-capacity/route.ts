@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCapacityForDateRange } from "@/lib/db";
 
+const MAX_SCHEDULE_CAPACITY_RANGE_DAYS = 366;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const startDate = searchParams.get("startDate");
@@ -29,15 +31,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Max 90 days
+  // Keep the API permissive enough for admin scheduling up to a year out.
   const start = new Date(startDate + "T00:00:00");
   const end = new Date(endDate + "T00:00:00");
   const diffDays = Math.round(
     (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
   );
-  if (diffDays > 90) {
+  if (diffDays > MAX_SCHEDULE_CAPACITY_RANGE_DAYS) {
     return NextResponse.json(
-      { error: "Date range cannot exceed 90 days" },
+      { error: `Date range cannot exceed ${MAX_SCHEDULE_CAPACITY_RANGE_DAYS} days` },
       { status: 400 }
     );
   }

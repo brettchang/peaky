@@ -1,20 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import type { DateRangeCapacity, Placement } from "@/lib/types";
-import { DAILY_CAPACITY_LIMITS } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { DateRangeCapacity, OnboardingFormType, Placement } from "@/lib/types";
+import {
+  getPlacementAvailableCapacityDates,
+  getTodayDateKey,
+} from "@/lib/schedule-capacity";
 
 interface OnboardingFormProps {
   campaignId: string;
   clientPortalId: string;
   roundId: string;
   roundLabel?: string;
+  formType: OnboardingFormType;
   placements: Placement[];
-  initialMessaging?: string;
-  initialDesiredAction?: string;
+  clientProvidesCopy?: boolean;
+  initialCampaignObjective?: string;
+  initialKeyMessage?: string;
+  initialTalkingPoints?: string;
+  initialCallToAction?: string;
+  initialTargetAudience?: string;
+  initialToneGuidelines?: string;
   editable: boolean;
   submitted: boolean;
+  adminMode?: boolean;
+  backHref?: string;
+  backLabel?: string;
+}
+
+interface PlacementBriefDraft {
+  placementId: string;
+  brief: string;
+  copy: string;
+  link?: string;
+  scheduledDate?: string;
+  imageUrl?: string;
+  logoUrl?: string;
 }
 
 export function OnboardingForm({
@@ -22,173 +44,214 @@ export function OnboardingForm({
   clientPortalId,
   roundId,
   roundLabel,
+  formType,
   placements,
-  initialMessaging,
-  initialDesiredAction,
+  clientProvidesCopy = false,
+  initialCampaignObjective,
+  initialKeyMessage,
+  initialTalkingPoints,
+  initialCallToAction,
+  initialTargetAudience,
+  initialToneGuidelines,
   editable,
   submitted,
+  adminMode = false,
+  backHref,
+  backLabel,
 }: OnboardingFormProps) {
-  const placementsNeedingDates = placements.filter((p) => !p.scheduledDate);
-  const [messaging, setMessaging] = useState(initialMessaging || "");
-  const [desiredAction, setDesiredAction] = useState(initialDesiredAction || "");
-  const [briefs, setBriefs] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const p of placements) {
-      initial[p.id] = p.onboardingBrief || "";
-    }
-    return initial;
-  });
-  const [links, setLinks] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const p of placements) {
-      initial[p.id] = p.linkToPlacement || "";
-    }
-    return initial;
-  });
-  const [logoUrls, setLogoUrls] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const p of placements) {
-      if (p.logoUrl) initial[p.id] = p.logoUrl;
-    }
-    return initial;
-  });
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const p of placements) {
-      if (p.imageUrl) initial[p.id] = p.imageUrl;
-    }
-    return initial;
-  });
-  const [uploading, setUploading] = useState<Record<string, string | null>>({});
+  const [campaignObjective, setCampaignObjective] = useState(initialCampaignObjective || "");
+  const [keyMessage, setKeyMessage] = useState(initialKeyMessage || "");
+  const [talkingPoints, setTalkingPoints] = useState(initialTalkingPoints || "");
+  const [callToAction, setCallToAction] = useState(initialCallToAction || "");
+  const [targetAudience, setTargetAudience] = useState(initialTargetAudience || "");
+  const [toneGuidelines, setToneGuidelines] = useState(initialToneGuidelines || "");
+  const [additionalNotes, setAdditionalNotes] = useState(initialToneGuidelines || "");
+  const [placementBriefs, setPlacementBriefs] = useState<PlacementBriefDraft[]>(
+    () =>
+      placements.map((placement) => ({
+        placementId: placement.id,
+        brief: placement.onboardingBrief || "",
+        copy: placement.currentCopy || "",
+        link: placement.linkToPlacement || "",
+        scheduledDate: placement.scheduledDate,
+        imageUrl: placement.imageUrl || "",
+        logoUrl: placement.logoUrl || "",
+      }))
+  );
+  const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [loadingDates, setLoadingDates] = useState(false);
-  const [capacity, setCapacity] = useState<DateRangeCapacity | null>(null);
-  const [selectedDates, setSelectedDates] = useState<Record<string, string>>({});
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [submittedNow, setSubmittedNow] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isReadOnly = !editable || submittedNow;
+  const isPodcastForm = formType === "podcast";
+  const placementById = useMemo(
+    () => new Map(placements.map((placement) => [placement.id, placement])),
+    [placements]
+  );
+  const todayKey = useMemo(() => getTodayDateKey(), []);
 
   useEffect(() => {
-    if (placementsNeedingDates.length === 0) return;
+    if (placements.length === 0) return;
 
-    async function loadCapacity() {
-      setError(null);
-      setLoadingDates(true);
-      try {
-        const start = new Date();
-        const end = new Date();
-        end.setDate(end.getDate() + 90);
+    let cancelled = false;
 
-        const startDate = formatDateForInput(start);
-        const endDate = formatDateForInput(end);
+    const toDateKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
 
-        const res = await fetch(
-          `/api/schedule-capacity?startDate=${startDate}&endDate=${endDate}`
-        );
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 30);
+
+    setCapacityLoading(true);
+    setCapacityError(null);
+
+    fetch(`/api/schedule-capacity?startDate=${toDateKey(start)}&endDate=${toDateKey(end)}`)
+      .then(async (res) => {
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.error || "Failed to load date availability");
+          throw new Error(data.error || "Failed to load available dates");
         }
-        const data: DateRangeCapacity = await res.json();
-        setCapacity(data);
-      } catch (err: unknown) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load date availability"
-        );
-      } finally {
-        setLoadingDates(false);
-      }
-    }
-
-    loadCapacity();
-  }, [placementsNeedingDates.length]);
-
-  function updateBrief(placementId: string, value: string) {
-    setBriefs((prev) => ({ ...prev, [placementId]: value }));
-  }
-
-  function updateLink(placementId: string, value: string) {
-    setLinks((prev) => ({ ...prev, [placementId]: value }));
-  }
-
-  async function handleFileUpload(
-    placementId: string,
-    field: "logoUrl" | "imageUrl",
-    file: File
-  ) {
-    setUploading((prev) => ({ ...prev, [`${placementId}-${field}`]: field }));
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("campaignId", campaignId);
-      formData.append("placementId", placementId);
-      formData.append("field", field);
-
-      const res = await fetch("/api/upload-placement-asset", {
-        method: "POST",
-        body: formData,
+        return (await res.json()) as DateRangeCapacity;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setCapacityDays(data.days || []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setCapacityError(err instanceof Error ? err.message : "Failed to load available dates");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCapacityLoading(false);
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      if (field === "logoUrl") {
-        setLogoUrls((prev) => ({ ...prev, [placementId]: data.url }));
-      } else {
-        setImageUrls((prev) => ({ ...prev, [placementId]: data.url }));
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to upload file. Please try again.");
-    } finally {
-      setUploading((prev) => ({ ...prev, [`${placementId}-${field}`]: null }));
-    }
-  }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [placements.length]);
 
   function getPayload() {
+    const resolvedAdditionalNotes = additionalNotes.trim();
     return {
       campaignId,
       portalId: clientPortalId,
       roundId,
-      messaging,
-      desiredAction,
-      placementBriefs: placements.map((p) => ({
-        placementId: p.id,
-        brief: briefs[p.id] || "",
-        link: links[p.id] || "",
-        scheduledDate: p.scheduledDate ? undefined : selectedDates[p.id] || undefined,
+      placementIds: placements.map((p) => p.id),
+      campaignObjective,
+      keyMessage: isPodcastForm ? keyMessage : campaignObjective,
+      talkingPoints: isPodcastForm ? talkingPoints : resolvedAdditionalNotes,
+      callToAction,
+      targetAudience: isPodcastForm ? targetAudience : resolvedAdditionalNotes,
+      toneGuidelines: isPodcastForm ? toneGuidelines : resolvedAdditionalNotes,
+      admin: adminMode,
+      placementBriefs: placementBriefs.map((entry) => ({
+        ...entry,
+        scheduledDate: entry.scheduledDate?.trim() ? entry.scheduledDate : undefined,
+        link: entry.link?.trim() ? entry.link : undefined,
+        imageUrl: entry.imageUrl?.trim() ? entry.imageUrl : undefined,
+        logoUrl: entry.logoUrl?.trim() ? entry.logoUrl : undefined,
       })),
     };
   }
 
-  function getAvailableDatesForPlacement(placement: Placement): { date: string; available: boolean }[] {
-    if (!capacity) return [];
+  function updatePlacementBriefDraft(
+    placementId: string,
+    updater: (entry: PlacementBriefDraft) => PlacementBriefDraft
+  ) {
+    setPlacementBriefs((prev) =>
+      prev.map((entry) =>
+        entry.placementId === placementId ? updater(entry) : entry
+      )
+    );
+  }
 
-    const limit = DAILY_CAPACITY_LIMITS[placement.type];
-    return capacity.days.map((day) => {
-      if (limit === null) {
-        return { date: day.date, available: true };
-      }
+  function setPlacementBrief(placementId: string, brief: string) {
+    updatePlacementBriefDraft(placementId, (entry) => ({ ...entry, brief }));
+  }
 
-      const slot = day.slots.find(
-        (s) => s.publication === placement.publication && s.type === placement.type
+  function setPlacementCopy(placementId: string, copy: string) {
+    updatePlacementBriefDraft(placementId, (entry) => ({ ...entry, copy }));
+  }
+
+  function setPlacementLink(placementId: string, link: string) {
+    updatePlacementBriefDraft(placementId, (entry) => ({
+      ...entry,
+      link: link || undefined,
+    }));
+  }
+
+  function setPlacementAsset(
+    placementId: string,
+    field: "imageUrl" | "logoUrl",
+    value: string
+  ) {
+    updatePlacementBriefDraft(placementId, (entry) => ({
+      ...entry,
+      [field]: value || undefined,
+    }));
+  }
+
+  function setPlacementScheduledDate(placementId: string, scheduledDate: string) {
+    updatePlacementBriefDraft(placementId, (entry) => ({
+      ...entry,
+      scheduledDate: scheduledDate || undefined,
+    }));
+  }
+
+  function getSelectedDate(placementId: string): string {
+    return (
+      placementBriefs.find((entry) => entry.placementId === placementId)?.scheduledDate || ""
+    );
+  }
+
+  function getPlacementDraft(placementId: string): PlacementBriefDraft | undefined {
+    return placementBriefs.find((entry) => entry.placementId === placementId);
+  }
+
+  function getAssignedCountForDate(
+    date: string,
+    placement: Placement,
+    excludePlacementId?: string
+  ): number {
+    return placementBriefs.filter((entry) => {
+      if (!entry.scheduledDate || entry.scheduledDate !== date) return false;
+      if (excludePlacementId && entry.placementId === excludePlacementId) return false;
+      const candidate = placementById.get(entry.placementId);
+      return (
+        candidate &&
+        candidate.type === placement.type &&
+        candidate.publication === placement.publication
       );
+    }).length;
+  }
 
-      const batchUsed = Object.entries(selectedDates).filter(([pid, selected]) => {
-        if (pid === placement.id || selected !== day.date) return false;
-        const p = placementsNeedingDates.find((candidate) => candidate.id === pid);
-        return (
-          p !== undefined &&
-          p.publication === placement.publication &&
-          p.type === placement.type
-        );
-      }).length;
+  function getAvailableDateOptions(placement: Placement): string[] {
+    return getPlacementAvailableCapacityDates({
+      capacityDays,
+      placement,
+      todayKey,
+      getReservedCount: (date) =>
+        getAssignedCountForDate(date, placement, placement.id),
+    });
+  }
 
-      const serverAvailable = slot?.available ?? 0;
-      return { date: day.date, available: serverAvailable - batchUsed > 0 };
+  function formatDateLabel(date: string): string {
+    return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   }
 
@@ -215,11 +278,80 @@ export function OnboardingForm({
     }
   }
 
+  async function handleAssetUpload(
+    placementId: string,
+    field: "logoUrl" | "imageUrl",
+    file: File
+  ) {
+    setSaving(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("campaignId", campaignId);
+      formData.append("placementId", placementId);
+      formData.append("field", field);
+      if (!adminMode) {
+        formData.append("clientId", clientPortalId);
+      }
+
+      const res = await fetch("/api/upload-placement-asset", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Upload failed");
+      }
+
+      const data = await res.json();
+      setPlacementAsset(placementId, field, String(data.url || ""));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSubmit() {
-    if (!messaging.trim() || !desiredAction.trim()) {
-      setError("Please fill in both campaign questions before submitting.");
+    if (clientProvidesCopy) {
+      const incompletePlacements = placements.filter((placement) => {
+        const draft = getPlacementDraft(placement.id);
+        if (!draft?.copy?.trim()) return true;
+        if (!isPodcastForm && !draft?.link?.trim()) return true;
+        if (placement.type === "Primary" && (!draft?.imageUrl?.trim() || !draft?.logoUrl?.trim())) {
+          return true;
+        }
+        return false;
+      });
+      if (incompletePlacements.length > 0) {
+        setError(
+          "Please complete the copy for each placement, add links for newsletter placements, and upload logo/image assets for Primary placements before submitting."
+        );
+        return;
+      }
+    }
+
+    const missingPodcastFields =
+      !campaignObjective.trim() ||
+      !keyMessage.trim() ||
+      !talkingPoints.trim() ||
+      !callToAction.trim() ||
+      !targetAudience.trim() ||
+      !toneGuidelines.trim();
+    const missingNewsletterFields = !campaignObjective.trim() || !callToAction.trim();
+    if (
+      !clientProvidesCopy &&
+      ((isPodcastForm && missingPodcastFields) || (!isPodcastForm && missingNewsletterFields))
+    ) {
+      setError(
+        isPodcastForm
+          ? "Please complete all fields before submitting."
+          : "Please complete the objective and call-to-action fields before submitting."
+      );
       return;
     }
+
     setSubmitting(true);
     setError(null);
     try {
@@ -243,344 +375,318 @@ export function OnboardingForm({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
       <Link
-        href={`/portal/${clientPortalId}`}
+        href={backHref || `/portal/${clientPortalId}`}
         className="mb-3 inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
       >
-        &larr; Back to portal
+        &larr; {backLabel || "Back to portal"}
       </Link>
-      <h2 className="text-lg font-semibold text-gray-900">
-        {roundLabel || "Help us create your ad copy"}
-      </h2>
+      <h2 className="text-lg font-semibold text-gray-900">{roundLabel || "Onboarding Script Form"}</h2>
       <p className="mt-1 text-sm text-gray-500">
-        Tell us about your campaign and we&apos;ll draft copy for {placements.length === 1 ? "this placement" : `these ${placements.length} placements`}.
+        {clientProvidesCopy
+          ? `Add the final copy, destination links, and any required creative assets for your ${placements.length} ${
+              placements.length === 1 ? "placement." : "placements."
+            }`
+          : isPodcastForm
+          ? "Share your script direction and we&apos;ll draft host-read copy."
+          : `Share your newsletter ad direction and we'll draft placement copy for your ${placements.length} ${
+              placements.length === 1 ? "placement." : "placements."
+            }`}
       </p>
 
-      {/* Read-only banner */}
       {!editable && (
         <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
           <p className="text-sm text-gray-600">
-            Your responses have been submitted. Our team is working on your copy.
+            {clientProvidesCopy
+              ? "Your form has been submitted."
+              : "Your responses have been submitted. Our team is working on your copy."}
           </p>
         </div>
       )}
 
-      {/* Submitted + still editable banner */}
       {submitted && editable && !submittedNow && (
         <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3">
           <p className="text-sm text-blue-700">
-            Submitted! You can still edit until our team begins copywriting.
+            {adminMode
+              ? "This form was already submitted. Admin edits here will update the saved onboarding answers."
+              : clientProvidesCopy
+                ? "Submitted! You can still edit until the form is locked."
+                : "Submitted! You can still edit until our team begins copywriting."}
           </p>
         </div>
       )}
 
-      {/* Just submitted confirmation */}
       {submittedNow && (
         <div className="mt-4 rounded-lg bg-green-50 border border-green-200 px-4 py-3">
           <p className="text-sm text-green-700">
-            Your brief has been submitted! Our team will begin drafting your copy shortly.
+            {clientProvidesCopy
+              ? "Your campaign form has been submitted."
+              : "Your onboarding script form has been submitted."}
           </p>
         </div>
       )}
 
-      {/* Campaign-level questions */}
-      <div className="mt-6 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            What&apos;s the overall message of the campaign (be as specific as you can)?
-          </label>
-          <textarea
-            value={messaging}
-            onChange={(e) => setMessaging(e.target.value)}
+      {!clientProvidesCopy && <div className="mt-6 space-y-4">
+        <FormField
+          label={
+            isPodcastForm
+              ? "Campaign Objective"
+              : "What do you want to accomplish with this advertisement (be specific)?"
+          }
+          value={campaignObjective}
+          onChange={setCampaignObjective}
+          readOnly={isReadOnly}
+          placeholder={
+            isPodcastForm
+              ? "What outcome do you want from this campaign?"
+              : "Describe the exact outcome you want from this ad."
+          }
+          rows={3}
+        />
+        <FormField
+          label={
+            isPodcastForm
+              ? "Call to Action"
+              : "What's your desired call to action?"
+          }
+          value={callToAction}
+          onChange={setCallToAction}
+          readOnly={isReadOnly}
+          placeholder={
+            isPodcastForm
+              ? "What should listeners do next?"
+              : "What action should readers take after seeing this ad?"
+          }
+          rows={2}
+        />
+        {!isPodcastForm && (
+          <FormField
+            label="Is there anything else we should know?"
+            value={additionalNotes}
+            onChange={setAdditionalNotes}
             readOnly={isReadOnly}
-            placeholder="Describe your key messages, value proposition, and what makes your product/service unique..."
+            placeholder="Any extra context, preferences, or constraints?"
             rows={4}
-            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-              isReadOnly
-                ? "border-gray-100 bg-gray-50 text-gray-600"
-                : "border-gray-300 bg-white"
-            }`}
           />
-        </div>
+        )}
+        {isPodcastForm && (
+          <>
+            <FormField
+              label="Key Message"
+              value={keyMessage}
+              onChange={setKeyMessage}
+              readOnly={isReadOnly}
+              placeholder="What core message should listeners remember?"
+              rows={3}
+            />
+            <FormField
+              label="Talking Points"
+              value={talkingPoints}
+              onChange={setTalkingPoints}
+              readOnly={isReadOnly}
+              placeholder="List key points, claims, differentiators, or proof points."
+              rows={4}
+            />
+            <FormField
+              label="Target Audience"
+              value={targetAudience}
+              onChange={setTargetAudience}
+              readOnly={isReadOnly}
+              placeholder="Who are you trying to reach?"
+              rows={3}
+            />
+            <FormField
+              label="Tone / Brand Guidelines"
+              value={toneGuidelines}
+              onChange={setToneGuidelines}
+              readOnly={isReadOnly}
+              placeholder="Any voice, compliance, or brand style guidance for the host read?"
+              rows={4}
+            />
+          </>
+        )}
+      </div>}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            What&apos;s the desired action of Peak readers?
-          </label>
-          <textarea
-            value={desiredAction}
-            onChange={(e) => setDesiredAction(e.target.value)}
-            readOnly={isReadOnly}
-            placeholder="e.g., Sign up for a free trial, Visit our website, Download the report..."
-            rows={3}
-            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-              isReadOnly
-                ? "border-gray-100 bg-gray-50 text-gray-600"
-                : "border-gray-300 bg-white"
-            }`}
-          />
-        </div>
-      </div>
-
-      {/* Per-placement briefs */}
       {placements.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Per-Placement Details
+        <div className="mt-8 space-y-4">
+          <h3 className="text-sm font-semibold text-gray-900">
+            {clientProvidesCopy ? "Placements" : "Placement-Specific Notes"}
           </h3>
-          <p className="mt-1 text-xs text-gray-500">
-            Provide a link, brief, and any required assets for each placement.
+          {!clientProvidesCopy && (
+            <p className="text-sm text-gray-500">
+              Add context per placement (optional), such as angle, audience, or any placement-level notes.
+            </p>
+          )}
+          <p className="text-sm text-gray-500">
+            {clientProvidesCopy
+              ? "Pick a preferred run date if needed, then add the final copy and required placement assets."
+              : "Optional: pick a preferred run date from the available dates in the next 30 days."}
           </p>
-
-          <div className="mt-3 space-y-4">
-            {placements.map((p) => {
-              const isPrimary = p.type === "Primary";
-              return (
-                <div
-                  key={p.id}
-                  className="rounded-lg border border-gray-100 bg-gray-50 p-4"
-                >
-                  <div className="mb-3 flex items-center gap-2 text-sm">
-                    <span className="font-medium text-gray-900">{p.type}</span>
-                    <span className="text-gray-400">&middot;</span>
-                    <span className="text-gray-500">{p.publication}</span>
-                    {p.scheduledDate && (
-                      <>
-                        <span className="text-gray-400">&middot;</span>
-                        <span className="text-gray-500">
-                          {new Date(
-                            p.scheduledDate + "T00:00:00"
-                          ).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </span>
-                      </>
+          {capacityLoading && (
+            <p className="text-sm text-gray-500">Loading available dates...</p>
+          )}
+          {capacityError && (
+            <p className="text-sm text-red-600">{capacityError}</p>
+          )}
+          <div className="space-y-4">
+            {placements.map((placement) => (
+              <div key={placement.id} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <p className="text-sm font-medium text-gray-900">
+                  {placement.type} · {placement.publication}
+                </p>
+                {placement.scheduledDate && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Scheduled{" "}
+                    {formatDateLabel(placement.scheduledDate)}
+                  </p>
+                )}
+                {!placement.scheduledDate && (
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Preferred Run Date <span className="text-gray-500 font-normal">(optional)</span>
+                    </label>
+                    <select
+                      value={getSelectedDate(placement.id)}
+                      onChange={(e) => setPlacementScheduledDate(placement.id, e.target.value)}
+                      disabled={
+                        isReadOnly ||
+                        capacityLoading ||
+                        getAvailableDateOptions(placement).length === 0
+                      }
+                      className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none ${
+                        isReadOnly
+                          ? "border-gray-100 bg-white text-gray-600"
+                          : "border-gray-300 bg-white"
+                      }`}
+                    >
+                      <option value="">No preferred date</option>
+                      {getAvailableDateOptions(placement).length === 0 && (
+                        <option value="" disabled>
+                          No available dates in the next 30 days
+                        </option>
+                      )}
+                      {getAvailableDateOptions(placement).map((date) => (
+                        <option key={date} value={date}>
+                          {formatDateLabel(date)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {clientProvidesCopy ? (
+                  <div className="mt-3 space-y-3">
+                    <textarea
+                      value={getPlacementDraft(placement.id)?.copy || ""}
+                      onChange={(e) => setPlacementCopy(placement.id, e.target.value)}
+                      readOnly={isReadOnly}
+                      placeholder={
+                        isPodcastForm
+                          ? "Paste the final script for this placement."
+                          : "Paste the final copy for this placement."
+                      }
+                      rows={6}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+                        isReadOnly
+                          ? "border-gray-100 bg-white text-gray-600"
+                          : "border-gray-300 bg-white"
+                      }`}
+                    />
+                    {!isPodcastForm && (
+                      <input
+                        type="url"
+                        value={getPlacementDraft(placement.id)?.link || ""}
+                        onChange={(e) => setPlacementLink(placement.id, e.target.value)}
+                        readOnly={isReadOnly}
+                        placeholder="Destination link for this placement"
+                        className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+                          isReadOnly
+                            ? "border-gray-100 bg-white text-gray-600"
+                            : "border-gray-300 bg-white"
+                        }`}
+                      />
+                    )}
+                    {placement.type === "Primary" && (
+                      <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+                        <p className="text-xs text-gray-600">
+                          Primary placements require both a logo and a 600x340 image.
+                        </p>
+                        <label className="block text-sm text-gray-700">
+                          Logo
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={isReadOnly || saving}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void handleAssetUpload(placement.id, "logoUrl", file);
+                              e.currentTarget.value = "";
+                            }}
+                            className="mt-1 block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-200 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-gray-300"
+                          />
+                          {getPlacementDraft(placement.id)?.logoUrl ? (
+                            <a
+                              href={getPlacementDraft(placement.id)?.logoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 inline-block text-xs text-blue-700 hover:underline"
+                            >
+                              View uploaded logo
+                            </a>
+                          ) : (
+                            <span className="mt-1 block text-xs text-red-600">Logo required</span>
+                          )}
+                        </label>
+                        <label className="block text-sm text-gray-700">
+                          Image
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={isReadOnly || saving}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void handleAssetUpload(placement.id, "imageUrl", file);
+                              e.currentTarget.value = "";
+                            }}
+                            className="mt-1 block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-200 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-gray-300"
+                          />
+                          {getPlacementDraft(placement.id)?.imageUrl ? (
+                            <a
+                              href={getPlacementDraft(placement.id)?.imageUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 inline-block text-xs text-blue-700 hover:underline"
+                            >
+                              View uploaded image
+                            </a>
+                          ) : (
+                            <span className="mt-1 block text-xs text-red-600">Image required</span>
+                          )}
+                        </label>
+                      </div>
                     )}
                   </div>
-
-                  {!p.scheduledDate && (
-                    <div className="mb-3">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Placement date(s) (If you&apos;re not ready to pick you can always choose later)
-                      </label>
-                      <select
-                        value={selectedDates[p.id] || ""}
-                        onChange={(e) =>
-                          setSelectedDates((prev) => ({
-                            ...prev,
-                            [p.id]: e.target.value,
-                          }))
-                        }
-                        disabled={isReadOnly || loadingDates || !capacity}
-                        className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none ${
-                          isReadOnly
-                            ? "border-gray-100 bg-white/50 text-gray-600"
-                            : "border-gray-200 bg-white"
-                        }`}
-                      >
-                        <option value="">
-                          {loadingDates
-                            ? "Loading dates..."
-                            : "Select placement date..."}
-                        </option>
-                        {getAvailableDatesForPlacement(p).map(({ date, available }) => (
-                          <option key={date} value={date} disabled={!available}>
-                            {formatDateShort(date)}
-                            {!available ? " (full)" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Link field */}
-                  <div className="mb-3">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Link URL
-                    </label>
-                    <input
-                      type="url"
-                      value={links[p.id] || ""}
-                      onChange={(e) => updateLink(p.id, e.target.value)}
-                      readOnly={isReadOnly}
-                      placeholder="https://..."
-                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-                        isReadOnly
-                          ? "border-gray-100 bg-white/50 text-gray-600"
-                          : "border-gray-200 bg-white"
-                      }`}
-                    />
-                  </div>
-
-                  {/* Brief */}
-                  <div className="mb-3">
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Tell us what you want the copy in this placement to be (if different from the main brief)
-                    </label>
-                    <textarea
-                      value={briefs[p.id] || ""}
-                      onChange={(e) => updateBrief(p.id, e.target.value)}
-                      readOnly={isReadOnly}
-                      placeholder="Describe what you'd like for this placement..."
-                      rows={2}
-                      className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
-                        isReadOnly
-                          ? "border-gray-100 bg-white/50 text-gray-600"
-                          : "border-gray-200 bg-white"
-                      }`}
-                    />
-                  </div>
-
-                  {/* Primary-only: logo + story image uploads */}
-                  {isPrimary && (
-                    <div>
-                      <p className="mb-2 text-xs text-gray-500">
-                        Our Primary Placements include logo placement at the top of the newsletter and a 600x340 feature image in the placement.
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                      {/* Logo upload */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Logo
-                        </label>
-                        {logoUrls[p.id] ? (
-                          <div className="relative">
-                            <img
-                              src={logoUrls[p.id]}
-                              alt="Logo"
-                              className="h-16 rounded border border-gray-200 bg-white object-contain p-1"
-                            />
-                            {!isReadOnly && (
-                              <button
-                                onClick={() => {
-                                  setLogoUrls((prev) => {
-                                    const next = { ...prev };
-                                    delete next[p.id];
-                                    return next;
-                                  });
-                                }}
-                                className="mt-1 text-xs text-gray-500 hover:text-gray-700"
-                              >
-                                Replace
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              ref={(el) => {
-                                fileRefs.current[`${p.id}-logo`] = el;
-                              }}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleFileUpload(p.id, "logoUrl", file);
-                                e.target.value = "";
-                              }}
-                            />
-                            <button
-                              onClick={() =>
-                                fileRefs.current[`${p.id}-logo`]?.click()
-                              }
-                              disabled={
-                                isReadOnly ||
-                                !!uploading[`${p.id}-logoUrl`]
-                              }
-                              className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-gray-400 hover:text-gray-700 disabled:opacity-50"
-                            >
-                              {uploading[`${p.id}-logoUrl`]
-                                ? "Uploading..."
-                                : "Upload Logo"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Story image upload */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          Story Image{" "}
-                          <span className="font-normal text-gray-400">
-                            (600 x 340)
-                          </span>
-                        </label>
-                        {imageUrls[p.id] ? (
-                          <div className="relative">
-                            <img
-                              src={imageUrls[p.id]}
-                              alt="Story image"
-                              className="h-16 rounded border border-gray-200 bg-white object-cover"
-                            />
-                            {!isReadOnly && (
-                              <button
-                                onClick={() => {
-                                  setImageUrls((prev) => {
-                                    const next = { ...prev };
-                                    delete next[p.id];
-                                    return next;
-                                  });
-                                }}
-                                className="mt-1 text-xs text-gray-500 hover:text-gray-700"
-                              >
-                                Replace
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              ref={(el) => {
-                                fileRefs.current[`${p.id}-image`] = el;
-                              }}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file)
-                                  handleFileUpload(p.id, "imageUrl", file);
-                                e.target.value = "";
-                              }}
-                            />
-                            <button
-                              onClick={() =>
-                                fileRefs.current[`${p.id}-image`]?.click()
-                              }
-                              disabled={
-                                isReadOnly ||
-                                !!uploading[`${p.id}-imageUrl`]
-                              }
-                              className="rounded-lg border border-dashed border-gray-300 bg-white px-3 py-2 text-xs text-gray-500 hover:border-gray-400 hover:text-gray-700 disabled:opacity-50"
-                            >
-                              {uploading[`${p.id}-imageUrl`]
-                                ? "Uploading..."
-                                : "Upload Image"}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                ) : (
+                  <textarea
+                    value={getPlacementDraft(placement.id)?.brief || ""}
+                    onChange={(e) => setPlacementBrief(placement.id, e.target.value)}
+                    readOnly={isReadOnly}
+                    placeholder="Any notes specific to this placement?"
+                    rows={3}
+                    className={`mt-3 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+                      isReadOnly
+                        ? "border-gray-100 bg-white text-gray-600"
+                        : "border-gray-300 bg-white"
+                    }`}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Error */}
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {savedMessage && <p className="mt-4 text-sm text-green-600">{savedMessage}</p>}
 
-      {/* Saved message */}
-      {savedMessage && (
-        <p className="mt-4 text-sm text-green-600">{savedMessage}</p>
-      )}
-
-      {/* Actions */}
       {editable && !submittedNow && (
         <div className="mt-6 flex items-center gap-3">
           <button
@@ -595,7 +701,7 @@ export function OnboardingForm({
             disabled={saving || submitting}
             className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
           >
-            {submitting ? "Submitting..." : "Submit"}
+            {submitting ? "Submitting..." : adminMode ? "Save as Submitted" : "Submit"}
           </button>
         </div>
       )}
@@ -603,19 +709,34 @@ export function OnboardingForm({
   );
 }
 
-function formatDateForInput(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatDateShort(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function FormField({
+  label,
+  value,
+  onChange,
+  readOnly,
+  placeholder,
+  rows,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  readOnly: boolean;
+  placeholder: string;
+  rows: number;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        placeholder={placeholder}
+        rows={rows}
+        className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none ${
+          readOnly ? "border-gray-100 bg-gray-50 text-gray-600" : "border-gray-300 bg-white"
+        }`}
+      />
+    </div>
+  );
 }

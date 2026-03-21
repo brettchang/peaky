@@ -1,18 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   OnboardingRound,
   PlacementStatus,
   PlacementType,
   Publication,
+  DateRangeCapacity,
   PODCAST_PLACEMENT_TYPES,
   PODCAST_PUBLICATION,
   getDefaultPlacementStatus,
   getPlacementStatusesFor,
+  getOnboardingFormTypeForPlacement,
   isPodcastInterviewType,
 } from "@/lib/types";
+import {
+  ADMIN_SCHEDULE_WINDOW_DAYS,
+  getAvailableCapacityDates,
+  getTodayDateKey,
+} from "@/lib/schedule-capacity";
 
 const TYPE_OPTIONS: Array<{ value: PlacementType; label: string }> = [
   { value: "Primary", label: "Primary" },
@@ -29,12 +36,21 @@ const PUBLICATIONS: Array<{ value: Publication; label: string }> = [
   { value: PODCAST_PUBLICATION, label: "Peak Daily Podcast" },
 ];
 
+function isPodcastRollType(type: PlacementType): boolean {
+  return type === ":30 Pre-Roll" || type === ":30 Mid-Roll";
+}
+
 interface AddPlacementFormProps {
   campaignId: string;
   onboardingRounds?: OnboardingRound[];
+  isEvergreen?: boolean;
 }
 
-export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementFormProps) {
+export function AddPlacementForm({
+  campaignId,
+  onboardingRounds,
+  isEvergreen = false,
+}: AddPlacementFormProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -43,30 +59,123 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
   const [type, setType] = useState<PlacementType>("Primary");
   const [publication, setPublication] = useState<Publication>("The Peak");
   const [status, setStatus] = useState<PlacementStatus>("New Campaign");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledEndDate, setScheduledEndDate] = useState("");
+  const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
+  const todayKey = useMemo(() => getTodayDateKey(), []);
 
   const statusOptions = useMemo(
     () => getPlacementStatusesFor(type, publication),
     [type, publication]
   );
+  const compatibleOnboardingRounds = useMemo(() => {
+    const placementFormType = getOnboardingFormTypeForPlacement({ type, publication });
+    return (onboardingRounds ?? []).filter((round) => round.formType === placementFormType);
+  }, [onboardingRounds, publication, type]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const toDateKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + ADMIN_SCHEDULE_WINDOW_DAYS);
+
+    setCapacityLoading(true);
+    setCapacityError(null);
+
+    fetch(
+      `/api/schedule-capacity?startDate=${toDateKey(start)}&endDate=${toDateKey(end)}`
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to load available dates");
+        }
+        return (await res.json()) as DateRangeCapacity;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setCapacityDays(data.days || []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setCapacityError(
+          err instanceof Error ? err.message : "Failed to load available dates"
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCapacityLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function formatDateLabel(date: string): string {
+    return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function getAvailableDateOptions(): string[] {
+    return getAvailableCapacityDates({
+      capacityDays,
+      publication,
+      type,
+      todayKey,
+    });
+  }
 
   function handleTypeChange(nextType: PlacementType) {
+    setScheduledDate("");
     setType(nextType);
     if (PODCAST_PLACEMENT_TYPES.includes(nextType)) {
       setPublication(PODCAST_PUBLICATION);
-      setStatus(getDefaultPlacementStatus(nextType, PODCAST_PUBLICATION));
+      setStatus(
+        isEvergreen
+          ? "Approved"
+          : getDefaultPlacementStatus(nextType, PODCAST_PUBLICATION)
+      );
       return;
     }
-    setStatus(getDefaultPlacementStatus(nextType, publication));
+    const nextPublication =
+      publication === PODCAST_PUBLICATION ? "The Peak" : publication;
+    if (nextPublication !== publication) setPublication(nextPublication);
+    setStatus(
+      isEvergreen
+        ? "Approved"
+        : getDefaultPlacementStatus(nextType, nextPublication)
+    );
   }
 
   function handlePublicationChange(nextPublication: Publication) {
+    setScheduledDate("");
     setPublication(nextPublication);
     const nextType =
       nextPublication === PODCAST_PUBLICATION && !PODCAST_PLACEMENT_TYPES.includes(type)
         ? ":30 Pre-Roll"
         : type;
     if (nextType !== type) setType(nextType);
-    setStatus(getDefaultPlacementStatus(nextType, nextPublication));
+    setStatus(
+      isEvergreen
+        ? "Approved"
+        : getDefaultPlacementStatus(nextType, nextPublication)
+    );
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -76,6 +185,12 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
 
     const form = e.currentTarget;
     const formData = new FormData(form);
+    const committedImpressionsRaw = formData.get("committedImpressions");
+    const committedImpressions =
+      typeof committedImpressionsRaw === "string" &&
+      committedImpressionsRaw.trim() !== ""
+        ? Number.parseInt(committedImpressionsRaw, 10)
+        : undefined;
 
     const res = await fetch("/api/add-placement", {
       method: "POST",
@@ -84,12 +199,13 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
         campaignId,
         type,
         publication,
-        scheduledDate: formData.get("scheduledDate") || undefined,
-        scheduledEndDate: formData.get("scheduledEndDate") || undefined,
+        scheduledDate: scheduledDate || undefined,
+        scheduledEndDate: scheduledEndDate || undefined,
         interviewScheduled:
           formData.get("interviewScheduled") === "on" ? true : undefined,
+        committedImpressions,
         copyProducer: formData.get("copyProducer"),
-        status,
+        status: isEvergreen ? "Approved" : status,
         notes: formData.get("notes") || undefined,
         onboardingRoundId: formData.get("onboardingRoundId") || undefined,
       }),
@@ -104,11 +220,14 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
     }
 
     setOpen(false);
+    setScheduledDate("");
+    setScheduledEndDate("");
     router.refresh();
   }
 
   const isPodcastPlacement = publication === PODCAST_PUBLICATION;
   const isInterview = isPodcastInterviewType(type);
+  const isPodcastRoll = isPodcastRollType(type);
 
   return (
     <>
@@ -177,11 +296,28 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     {isPodcastPlacement ? "Scheduled Start" : "Scheduled Date"}
                   </label>
-                  <input
-                    type="date"
+                  <select
                     name="scheduledDate"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    disabled={capacityLoading}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
-                  />
+                  >
+                    <option value="">No date</option>
+                    {getAvailableDateOptions().length === 0 && (
+                      <option value="" disabled>
+                        No dates in next 12 months
+                      </option>
+                    )}
+                    {getAvailableDateOptions().map((date) => (
+                      <option key={date} value={date}>
+                        {formatDateLabel(date)}
+                      </option>
+                    ))}
+                  </select>
+                  {capacityError && (
+                    <p className="mt-1 text-xs text-red-600">{capacityError}</p>
+                  )}
                 </div>
                 {isPodcastPlacement && (
                   <div>
@@ -191,6 +327,8 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                     <input
                       type="date"
                       name="scheduledEndDate"
+                      value={scheduledEndDate}
+                      onChange={(e) => setScheduledEndDate(e.target.value)}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                     />
                   </div>
@@ -206,6 +344,22 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                   />
                   Interview Scheduled
                 </label>
+              )}
+
+              {isPodcastRoll && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    Committed Impressions
+                  </label>
+                  <input
+                    type="number"
+                    name="committedImpressions"
+                    min={0}
+                    step={1}
+                    placeholder="e.g. 100000"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                  />
+                </div>
               )}
 
               <div>
@@ -236,7 +390,8 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                 </div>
               </div>
 
-              <div>
+              {!isEvergreen && (
+                <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Status <span className="text-red-500">*</span>
                 </label>
@@ -252,9 +407,10 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                     </option>
                   ))}
                 </select>
-              </div>
+                </div>
+              )}
 
-              {onboardingRounds && onboardingRounds.length > 0 && (
+              {!isEvergreen && compatibleOnboardingRounds.length > 0 && (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     Onboarding Round
@@ -264,9 +420,10 @@ export function AddPlacementForm({ campaignId, onboardingRounds }: AddPlacementF
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                   >
                     <option value="">None</option>
-                    {onboardingRounds.map((r) => (
+                    {compatibleOnboardingRounds.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.label || r.id}
+                        {` (${r.formType})`}
                         {r.complete ? "" : " (pending)"}
                       </option>
                     ))}

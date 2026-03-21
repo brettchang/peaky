@@ -18,6 +18,7 @@ export function CampaignCard({ campaign, clientPortalId }: CampaignCardProps) {
   return (
     <Link
       href={`/portal/${clientPortalId}/${campaign.id}`}
+      prefetch={false}
       className="block rounded-lg border border-gray-200 bg-white px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-50"
     >
       <div className="flex items-center justify-between">

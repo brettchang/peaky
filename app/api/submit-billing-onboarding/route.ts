@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getClientByPortalId, getCampaignById, submitBillingOnboardingForm } from "@/lib/db";
+import { sendSlackNotification } from "@/lib/slack";
+import { getAppBaseUrl } from "@/lib/urls";
+import { buildBillingSubmittedNotification } from "@/lib/slack-events";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +19,8 @@ export async function POST(request: NextRequest) {
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
       specificInvoicingInstructions,
     } = body;
 
@@ -33,6 +38,8 @@ export async function POST(request: NextRequest) {
       !billingAddress && "billingAddress",
       !billingContactName && "billingContactName",
       !billingContactEmail && "billingContactEmail",
+      !ioSigningContactName && "ioSigningContactName",
+      !ioSigningContactEmail && "ioSigningContactEmail",
     ].filter(Boolean);
 
     if (missing.length > 0) {
@@ -51,6 +58,15 @@ export async function POST(request: NextRequest) {
     if (!campaign) {
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
+    if (campaign.complementaryCampaign) {
+      return NextResponse.json(
+        {
+          error:
+            "Campaign is marked as complementary and does not require billing onboarding.",
+        },
+        { status: 400 }
+      );
+    }
     if (campaign.billingOnboarding?.complete) {
       return NextResponse.json(
         { error: "Billing onboarding has already been submitted" },
@@ -67,6 +83,8 @@ export async function POST(request: NextRequest) {
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
       specificInvoicingInstructions,
     });
 
@@ -76,6 +94,23 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    void sendSlackNotification(
+      buildBillingSubmittedNotification({
+        campaignId,
+        campaignName: campaign.name,
+        portalId,
+        billingCompany: companyName,
+        billingContactName,
+        billingContactEmail,
+        ioSigningContactName,
+        ioSigningContactEmail,
+        submittedAtIso: new Date().toISOString(),
+        dashboardUrl: `${getAppBaseUrl()}/dashboard/${campaignId}`,
+      })
+    ).catch((error: unknown) => {
+      console.error("Slack notification failed (billing.submitted):", error);
+    });
 
     revalidatePath(`/portal/${portalId}/${campaignId}`);
     revalidatePath(`/portal/${portalId}`);
@@ -88,4 +123,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

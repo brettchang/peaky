@@ -5,6 +5,7 @@ import * as schema from "./schema";
 import { generatePortalId } from "../client-ids";
 import type {
   Campaign,
+  CampaignManager,
   Placement,
   OnboardingRound,
   AdLineItem,
@@ -15,20 +16,75 @@ import type {
   CampaignStatus,
   PerformanceStats,
   CampaignContact,
+  CampaignCurrency,
+  CampaignCategory,
+  OnboardingFormType,
 } from "../types";
 import {
+  CAMPAIGN_MANAGERS,
   DAILY_CAPACITY_LIMITS,
   getDefaultPlacementStatus,
+  getOnboardingFormTypeForPlacement,
+  isCampaignManager,
+  isPodcastPlacement,
+  isValidPlacementPublication,
   isPodcastInterviewType,
   isPodcastPublication,
 } from "../types";
 import { getCampaignById, getPlacement } from "./queries";
 import { attachPlacementMeta, extractPlacementMeta } from "../placement-meta";
+import { getPortalBaseUrl } from "../urls";
+import type { DashboardInvoiceStatus } from "../xero-types";
+import {
+  attachCampaignManagerNotes,
+  extractCampaignManagerNotes,
+} from "../campaign-manager-notes";
 
 const nanoid = customAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 10);
 
 function genId(prefix: string): string {
   return `${prefix}-${nanoid()}`;
+}
+
+function buildCampaignFormLink(portalId: string, campaignId: string): string {
+  return `${getPortalBaseUrl()}/portal/${portalId}/${campaignId}`;
+}
+
+async function assertPlacementDateAllowed(
+  scheduledDate: string,
+  type: PlacementType,
+  publication: Publication,
+  ignorePlacementId?: string
+): Promise<void> {
+  const dateObj = new Date(`${scheduledDate}T00:00:00`);
+  const dayOfWeek = dateObj.getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    throw new Error("Placement dates must be weekdays");
+  }
+
+  const limit = DAILY_CAPACITY_LIMITS[type];
+  if (limit === null) return;
+
+  const existing = await db
+    .select({ id: schema.placements.id })
+    .from(schema.placements)
+    .where(
+      and(
+        eq(schema.placements.scheduledDate, scheduledDate),
+        eq(schema.placements.type, type),
+        eq(schema.placements.publication, publication)
+      )
+    );
+
+  const used = ignorePlacementId
+    ? existing.filter((row) => row.id !== ignorePlacementId).length
+    : existing.length;
+
+  if (used >= limit) {
+    throw new Error(
+      `${type} is full on ${scheduledDate} for ${publication} (${used}/${limit})`
+    );
+  }
 }
 
 const BILLING_META_START = "<!-- billing-meta:start -->";
@@ -39,6 +95,8 @@ interface BillingPortalMeta {
   wantsPeakCopy?: boolean;
   salesPerson?: string;
   contacts?: CampaignContact[];
+  longTermClient?: boolean;
+  complementaryCampaign?: boolean;
 }
 
 function extractBillingPortalMeta(notes?: string | null): {
@@ -47,14 +105,13 @@ function extractBillingPortalMeta(notes?: string | null): {
 } {
   if (!notes) return { cleanNotes: null, meta: {} };
 
-  const start = notes.indexOf(BILLING_META_START);
-  const end = notes.indexOf(BILLING_META_END);
+  const start = notes.lastIndexOf(BILLING_META_START);
+  const end =
+    start === -1 ? -1 : notes.indexOf(BILLING_META_END, start);
   if (start === -1 || end === -1 || end < start) {
     return { cleanNotes: notes.trim() || null, meta: {} };
   }
 
-  const before = notes.slice(0, start).trim();
-  const after = notes.slice(end + BILLING_META_END.length).trim();
   const rawMeta = notes
     .slice(start + BILLING_META_START.length, end)
     .trim();
@@ -66,7 +123,13 @@ function extractBillingPortalMeta(notes?: string | null): {
     meta = {};
   }
 
-  const cleanNotes = [before, after].filter(Boolean).join("\n\n").trim() || null;
+  const cleanNotes =
+    notes
+      .replace(
+        /<!-- billing-meta:start -->[\s\S]*?<!-- billing-meta:end -->/g,
+        ""
+      )
+      .trim() || null;
   return { cleanNotes, meta };
 }
 
@@ -93,9 +156,15 @@ export async function updatePlacementStatus(
   placementId: string,
   status: PlacementStatus
 ): Promise<boolean> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  const nextStatus: PlacementStatus =
+    campaign?.category === "Evergreen" ? "Approved" : status;
+
   const result = await db
     .update(schema.placements)
-    .set({ status })
+    .set({ status: nextStatus })
     .where(
       and(
         eq(schema.placements.id, placementId),
@@ -112,9 +181,14 @@ export async function savePlacementRevisionNotes(
 ): Promise<boolean> {
   const placement = await getPlacement(campaignId, placementId);
   if (!placement) return false;
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
 
   const nextStatus: PlacementStatus =
-    placement.status === "Client Reviewing Interview"
+    campaign?.category === "Evergreen"
+      ? "Approved"
+      : placement.status === "Client Reviewing Interview"
       ? "Revising for Client"
       : placement.status === "Audio Sent for Approval" ||
           placement.status === "Audio Sent"
@@ -190,6 +264,17 @@ export async function updatePlacementScheduledDate(
   placementId: string,
   scheduledDate: string | null
 ): Promise<boolean> {
+  if (scheduledDate) {
+    const placement = await getPlacement(campaignId, placementId);
+    if (!placement) return false;
+    await assertPlacementDateAllowed(
+      scheduledDate,
+      placement.type,
+      placement.publication,
+      placementId
+    );
+  }
+
   const result = await db
     .update(schema.placements)
     .set({ scheduledDate })
@@ -221,23 +306,29 @@ export async function updatePlacementLink(
 
 export function createOnboardingRound(
   campaignId: string,
-  label?: string
+  label?: string,
+  formType: OnboardingFormType = "newsletter"
 ): Promise<OnboardingRound | null> {
   return (async () => {
     // Verify campaign exists
     const campaign = await db.query.campaigns.findFirst({
       where: eq(schema.campaigns.id, campaignId),
+      with: {
+        client: true,
+      },
     });
     if (!campaign) return null;
 
     const id = genId("round");
     const now = new Date();
+    const formLink = buildCampaignFormLink(campaign.portalId, campaignId);
 
     await db.insert(schema.onboardingRounds).values({
       id,
       campaignId,
       label: label ?? null,
-      filloutLink: `https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=${campaignId}&round_id=${id}`,
+      formType,
+      formLink,
       complete: false,
       createdAt: now,
     });
@@ -245,18 +336,41 @@ export function createOnboardingRound(
     return {
       id,
       label,
-      filloutLink: `https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=${campaignId}&round_id=${id}`,
+      formType,
+      formLink,
       complete: false,
       createdAt: now.toISOString(),
     };
   })();
 }
 
+export async function updateOnboardingRoundLabel(
+  campaignId: string,
+  roundId: string,
+  label?: string
+): Promise<boolean> {
+  const normalizedLabel = label?.trim() || null;
+  const result = await db
+    .update(schema.onboardingRounds)
+    .set({ label: normalizedLabel })
+    .where(
+      and(
+        eq(schema.onboardingRounds.id, roundId),
+        eq(schema.onboardingRounds.campaignId, campaignId)
+      )
+    );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
 export function createCampaign(data: {
   clientName: string;
   name: string;
+  category?: CampaignCategory;
   salesPerson?: string;
-  campaignManager?: string;
+  campaignManager: CampaignManager;
+  currency?: CampaignCurrency;
+  taxEligible?: boolean;
   contactName?: string;
   contactEmail?: string;
   contacts?: CampaignContact[];
@@ -264,9 +378,28 @@ export function createCampaign(data: {
   notes?: string;
 }): Promise<Campaign> {
   return (async () => {
+    if (!isCampaignManager(data.campaignManager)) {
+      throw new Error(
+        `campaignManager must be one of: ${CAMPAIGN_MANAGERS.join(", ")}`
+      );
+    }
+
+    if (data.adLineItems) {
+      for (const lineItem of data.adLineItems) {
+        const publication = lineItem.publication ?? "The Peak";
+        if (!isValidPlacementPublication(lineItem.type, publication)) {
+          throw new Error(
+            `Invalid type/publication combination: ${lineItem.type} + ${publication}`
+          );
+        }
+      }
+    }
+
     const client = await findOrCreateClient(data.clientName);
     const campaignId = genId("campaign");
+    const campaignPortalId = generatePortalId();
     const now = new Date();
+    const isEvergreen = data.category === "Evergreen";
 
     // Insert campaign
     const notesWithMeta = attachBillingPortalMeta(data.notes ?? null, {
@@ -282,9 +415,13 @@ export function createCampaign(data: {
     await db.insert(schema.campaigns).values({
       id: campaignId,
       name: data.name,
+      portalId: campaignPortalId,
       clientId: client.id,
-      status: "Waiting on Onboarding",
-      campaignManager: data.campaignManager ?? null,
+      category: data.category ?? "Standard",
+      status: isEvergreen ? "Active" : "Onboarding to be sent",
+      campaignManager: data.campaignManager,
+      currency: data.currency ?? "CAD",
+      taxEligible: data.taxEligible ?? true,
       contactName: primaryContact?.name ?? data.contactName ?? null,
       contactEmail: primaryContact?.email ?? data.contactEmail ?? null,
       adLineItems: data.adLineItems ?? null,
@@ -292,16 +429,31 @@ export function createCampaign(data: {
       createdAt: now,
     });
 
-    // Create billing onboarding
-    await db.insert(schema.billingOnboarding).values({
-      id: genId("billing"),
-      campaignId,
-      filloutLink: `https://thepeakquiz.fillout.com/t/uDNyXt4Ttsus?campaign_id=${campaignId}&form_type=billing`,
-      complete: false,
-    });
+    let firstRound: OnboardingRound | null = null;
+    let firstRoundFormType: OnboardingFormType = "newsletter";
+    if (!isEvergreen) {
+      if (data.adLineItems && data.adLineItems.length > 0) {
+        const allPodcast = data.adLineItems.every((lineItem) =>
+          isPodcastPlacement(lineItem.type, lineItem.publication ?? "The Peak")
+        );
+        firstRoundFormType = allPodcast ? "podcast" : "newsletter";
+      }
 
-    // Create initial onboarding round
-    const firstRound = await createOnboardingRound(campaignId, "Initial Round");
+      // Create billing onboarding
+      await db.insert(schema.billingOnboarding).values({
+        id: genId("billing"),
+        campaignId,
+        formLink: buildCampaignFormLink(campaignPortalId, campaignId),
+        complete: false,
+      });
+
+      // Create initial onboarding round
+      firstRound = await createOnboardingRound(
+        campaignId,
+        "Initial Copy Round",
+        firstRoundFormType
+      );
+    }
 
     // Auto-create placements from ad line items
     if (data.adLineItems) {
@@ -310,11 +462,22 @@ export function createCampaign(data: {
           await addPlacement(campaignId, {
             type: lineItem.type,
             publication: lineItem.publication ?? "The Peak",
-            status: getDefaultPlacementStatus(
-              lineItem.type,
-              lineItem.publication ?? "The Peak"
-            ),
-            onboardingRoundId: firstRound?.id,
+            status: isEvergreen
+              ? "Approved"
+              : getDefaultPlacementStatus(
+                  lineItem.type,
+                  lineItem.publication ?? "The Peak"
+                ),
+            onboardingRoundId:
+              isEvergreen
+                ? undefined
+                : firstRound &&
+                    getOnboardingFormTypeForPlacement({
+                      type: lineItem.type,
+                      publication: lineItem.publication ?? "The Peak",
+                    }) === firstRoundFormType
+                  ? firstRound.id
+                  : undefined,
           });
         }
       }
@@ -351,10 +514,13 @@ export function markOnboardingComplete(
       .where(eq(schema.onboardingRounds.id, round.id));
 
     // Only transition campaign status on first round completion
-    if (campaign.status === "Waiting on Onboarding") {
+    if (
+      campaign.status === "Waiting for onboarding" ||
+      campaign.status === "Onboarding to be sent"
+    ) {
       await db
         .update(schema.campaigns)
-        .set({ status: "Onboarding Form Complete" satisfies CampaignStatus })
+        .set({ status: "Active" satisfies CampaignStatus })
         .where(eq(schema.campaigns.id, campaignId));
     }
 
@@ -367,6 +533,8 @@ export function markBillingOnboardingComplete(
   data: {
     billingContactName?: string;
     billingContactEmail?: string;
+    ioSigningContactName?: string;
+    ioSigningContactEmail?: string;
     billingAddress?: string;
     poNumber?: string;
     invoiceCadence?: InvoiceCadence;
@@ -386,6 +554,8 @@ export function markBillingOnboardingComplete(
         completedAt: new Date(),
         billingContactName: data.billingContactName ?? null,
         billingContactEmail: data.billingContactEmail ?? null,
+        ioSigningContactName: data.ioSigningContactName ?? null,
+        ioSigningContactEmail: data.ioSigningContactEmail ?? null,
         billingAddress: data.billingAddress ?? null,
         poNumber: data.poNumber ?? null,
         invoiceCadence: data.invoiceCadence ?? null,
@@ -408,6 +578,8 @@ export async function saveBillingOnboardingForm(
     billingAddress?: string;
     billingContactName?: string;
     billingContactEmail?: string;
+    ioSigningContactName?: string;
+    ioSigningContactEmail?: string;
     specificInvoicingInstructions?: string;
   }
 ): Promise<boolean> {
@@ -451,6 +623,8 @@ export async function saveBillingOnboardingForm(
       billingAddress: data.billingAddress ?? null,
       billingContactName: data.billingContactName ?? null,
       billingContactEmail: data.billingContactEmail ?? null,
+      ioSigningContactName: data.ioSigningContactName ?? null,
+      ioSigningContactEmail: data.ioSigningContactEmail ?? null,
       specialInstructions: data.specificInvoicingInstructions ?? null,
     })
     .where(eq(schema.billingOnboarding.id, billing.id));
@@ -469,6 +643,8 @@ export async function submitBillingOnboardingForm(
     billingAddress: string;
     billingContactName: string;
     billingContactEmail: string;
+    ioSigningContactName: string;
+    ioSigningContactEmail: string;
     specificInvoicingInstructions?: string;
   }
 ): Promise<boolean> {
@@ -498,6 +674,8 @@ export async function updateBillingOnboardingByAdmin(
     billingAddress?: string;
     billingContactName?: string;
     billingContactEmail?: string;
+    ioSigningContactName?: string;
+    ioSigningContactEmail?: string;
     invoiceCadence?: InvoiceCadence;
     specialInstructions?: string;
   }
@@ -519,6 +697,8 @@ export async function updateBillingOnboardingByAdmin(
       billingAddress: normalize(data.billingAddress),
       billingContactName: normalize(data.billingContactName),
       billingContactEmail: normalize(data.billingContactEmail),
+      ioSigningContactName: normalize(data.ioSigningContactName),
+      ioSigningContactEmail: normalize(data.ioSigningContactEmail),
       invoiceCadence: data.invoiceCadence ?? null,
       specialInstructions: normalize(data.specialInstructions),
     })
@@ -548,6 +728,7 @@ export function addPlacement(
     scheduledDate?: string;
     scheduledEndDate?: string;
     interviewScheduled?: boolean;
+    committedImpressions?: number;
     copyProducer?: "Us" | "Client";
     status: PlacementStatus;
     notes?: string;
@@ -555,17 +736,64 @@ export function addPlacement(
   }
 ): Promise<Placement | null> {
   return (async () => {
+    if (!isValidPlacementPublication(data.type, data.publication)) {
+      throw new Error(
+        `Invalid type/publication combination: ${data.type} + ${data.publication}`
+      );
+    }
+
     const campaign = await db.query.campaigns.findFirst({
       where: eq(schema.campaigns.id, campaignId),
     });
     if (!campaign) return null;
+    const billingMeta = extractBillingPortalMeta(campaign.notes).meta;
+    const resolvedCopyProducer =
+      data.copyProducer ??
+      (billingMeta.wantsPeakCopy === false
+        ? "Client"
+        : billingMeta.wantsPeakCopy === true
+          ? "Us"
+          : undefined);
+
+    if (campaign.category !== "Evergreen" && data.onboardingRoundId) {
+      const round = await db.query.onboardingRounds.findFirst({
+        where: and(
+          eq(schema.onboardingRounds.id, data.onboardingRoundId),
+          eq(schema.onboardingRounds.campaignId, campaignId)
+        ),
+      });
+      if (!round) {
+        throw new Error("Selected onboarding round was not found");
+      }
+      const placementFormType = getOnboardingFormTypeForPlacement({
+        type: data.type,
+        publication: data.publication,
+      });
+      const roundFormType = (round.formType as OnboardingFormType) ?? "newsletter";
+      if (placementFormType !== roundFormType) {
+        throw new Error(
+          `Cannot assign ${data.type} (${data.publication}) to a ${roundFormType} onboarding form`
+        );
+      }
+    }
 
     const id = genId("placement");
     const now = new Date();
+    const nextStatus: PlacementStatus =
+      campaign.category === "Evergreen" ? "Approved" : data.status;
     const notesWithMeta = attachPlacementMeta(data.notes ?? null, {
       scheduledEndDate: data.scheduledEndDate,
       interviewScheduled: data.interviewScheduled,
+      committedImpressions: data.committedImpressions,
     });
+
+    if (data.scheduledDate) {
+      await assertPlacementDateAllowed(
+        data.scheduledDate,
+        data.type,
+        data.publication
+      );
+    }
 
     await db.insert(schema.placements).values({
       id,
@@ -574,9 +802,10 @@ export function addPlacement(
       type: data.type,
       publication: data.publication,
       scheduledDate: data.scheduledDate ?? null,
-      status: data.status,
-      onboardingRoundId: data.onboardingRoundId ?? null,
-      copyProducer: data.copyProducer ?? null,
+      status: nextStatus,
+      onboardingRoundId:
+        campaign.category === "Evergreen" ? null : data.onboardingRoundId ?? null,
+      copyProducer: resolvedCopyProducer ?? null,
       notes: notesWithMeta || null,
       currentCopy: "",
       copyVersion: 0,
@@ -591,9 +820,11 @@ export function addPlacement(
       scheduledDate: data.scheduledDate,
       scheduledEndDate: data.scheduledEndDate,
       interviewScheduled: data.interviewScheduled,
-      status: data.status,
-      onboardingRoundId: data.onboardingRoundId,
-      copyProducer: data.copyProducer,
+      committedImpressions: data.committedImpressions,
+      status: nextStatus,
+      onboardingRoundId:
+        campaign.category === "Evergreen" ? undefined : data.onboardingRoundId,
+      copyProducer: resolvedCopyProducer,
       notes: data.notes,
       currentCopy: "",
       copyVersion: 0,
@@ -629,6 +860,27 @@ export async function updatePlacementOnboardingRound(
   placementId: string,
   onboardingRoundId: string | null
 ): Promise<boolean> {
+  const placement = await getPlacement(campaignId, placementId);
+  if (!placement) return false;
+
+  if (onboardingRoundId) {
+    const round = await db.query.onboardingRounds.findFirst({
+      where: and(
+        eq(schema.onboardingRounds.id, onboardingRoundId),
+        eq(schema.onboardingRounds.campaignId, campaignId)
+      ),
+    });
+    if (!round) return false;
+
+    const roundFormType = (round.formType as OnboardingFormType) ?? "newsletter";
+    const placementFormType = getOnboardingFormTypeForPlacement(placement);
+    if (roundFormType !== placementFormType) {
+      throw new Error(
+        `Cannot assign ${placement.type} (${placement.publication}) to a ${roundFormType} onboarding form`
+      );
+    }
+  }
+
   const result = await db
     .update(schema.placements)
     .set({ onboardingRoundId })
@@ -645,15 +897,22 @@ export async function updateCampaignMetadata(
   campaignId: string,
   data: {
     name?: string;
+    category?: CampaignCategory;
     status?: CampaignStatus;
     clientName?: string | null;
     salesPerson?: string | null;
-    campaignManager?: string | null;
+    campaignManager?: CampaignManager;
+    currency?: CampaignCurrency;
+    taxEligible?: boolean;
     legacyOnboardingDocUrl?: string | null;
     contactName?: string | null;
     contactEmail?: string | null;
     contacts?: CampaignContact[] | null;
     notes?: string | null;
+    campaignManagerNotes?: string | null;
+    specialInvoicingInstructions?: string | null;
+    longTermClient?: boolean;
+    complementaryCampaign?: boolean;
   }
 ): Promise<boolean> {
   const campaign = await db.query.campaigns.findFirst({
@@ -661,7 +920,10 @@ export async function updateCampaignMetadata(
   });
   if (!campaign) return false;
 
-  const extracted = extractBillingPortalMeta(campaign.notes);
+  const managerNotesExtracted = extractCampaignManagerNotes(campaign.notes);
+  const extracted = extractBillingPortalMeta(
+    managerNotesExtracted.notesWithoutManagerNotes
+  );
   const nextMeta: BillingPortalMeta = {
     ...extracted.meta,
     salesPerson:
@@ -677,19 +939,49 @@ export async function updateCampaignMetadata(
             }))
             .filter((c) => c.name && c.email)
         : extracted.meta.contacts,
+    longTermClient:
+      data.longTermClient !== undefined
+        ? data.longTermClient
+        : extracted.meta.longTermClient,
+    complementaryCampaign:
+      data.complementaryCampaign !== undefined
+        ? data.complementaryCampaign
+        : extracted.meta.complementaryCampaign,
   };
 
   const nextNotes =
-    data.notes !== undefined ? data.notes : extracted.cleanNotes;
+    data.notes !== undefined
+      ? extractBillingPortalMeta(data.notes).cleanNotes
+      : extracted.cleanNotes;
+  const nextManagerNotes =
+    data.campaignManagerNotes !== undefined
+      ? data.campaignManagerNotes?.trim() || null
+      : managerNotesExtracted.managerNotes ?? null;
 
   const updatePayload: Record<string, unknown> = {
-    notes: attachBillingPortalMeta(nextNotes ?? null, nextMeta) || null,
+    notes:
+      attachCampaignManagerNotes(
+        attachBillingPortalMeta(nextNotes ?? null, nextMeta) || null,
+        nextManagerNotes
+      ) || null,
   };
 
   if (data.name !== undefined) updatePayload.name = data.name;
+  if (data.category !== undefined) updatePayload.category = data.category;
   if (data.status !== undefined) updatePayload.status = data.status;
   if (data.campaignManager !== undefined) {
+    if (!isCampaignManager(data.campaignManager)) {
+      throw new Error(
+        `campaignManager must be one of: ${CAMPAIGN_MANAGERS.join(", ")}`
+      );
+    }
     updatePayload.campaignManager = data.campaignManager;
+  }
+  if (data.currency !== undefined) {
+    updatePayload.currency = data.currency;
+  }
+  if (data.taxEligible !== undefined) {
+    updatePayload.taxEligible = data.taxEligible;
   }
   if (data.legacyOnboardingDocUrl !== undefined) {
     const normalized = data.legacyOnboardingDocUrl?.trim() ?? null;
@@ -719,6 +1011,39 @@ export async function updateCampaignMetadata(
     .update(schema.campaigns)
     .set(updatePayload)
     .where(eq(schema.campaigns.id, campaignId));
+  const didUpdateCampaign = (result.rowCount ?? 0) > 0;
+  if (!didUpdateCampaign) return false;
+
+  if (data.specialInvoicingInstructions !== undefined) {
+    const normalized = data.specialInvoicingInstructions?.trim() || null;
+    await db
+      .update(schema.billingOnboarding)
+      .set({ specialInstructions: normalized })
+      .where(eq(schema.billingOnboarding.campaignId, campaignId));
+  }
+
+  return true;
+}
+
+export async function updateCampaignPandaDoc(
+  campaignId: string,
+  data: {
+    documentId: string;
+    status?: string | null;
+    documentUrl?: string | null;
+    createdAt?: Date;
+  }
+): Promise<boolean> {
+  const result = await db
+    .update(schema.campaigns)
+    .set({
+      pandadocDocumentId: data.documentId,
+      pandadocStatus: data.status ?? null,
+      pandadocDocumentUrl: data.documentUrl ?? null,
+      pandadocCreatedAt: data.createdAt ?? new Date(),
+    })
+    .where(eq(schema.campaigns.id, campaignId));
+
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -732,6 +1057,7 @@ export async function updatePlacementMetadata(
     scheduledDate?: string | null;
     scheduledEndDate?: string | null;
     interviewScheduled?: boolean | null;
+    committedImpressions?: number | null;
     status?: PlacementStatus;
     copyProducer?: "Us" | "Client" | null;
     notes?: string | null;
@@ -748,6 +1074,32 @@ export async function updatePlacementMetadata(
     ),
   });
   if (!placementRow) return false;
+  const campaignRow = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  const isEvergreen = campaignRow?.category === "Evergreen";
+
+  const nextType = data.type ?? (placementRow.type as PlacementType);
+  const nextPublication =
+    data.publication ?? (placementRow.publication as Publication);
+  if (!isValidPlacementPublication(nextType, nextPublication)) {
+    throw new Error(
+      `Invalid type/publication combination: ${nextType} + ${nextPublication}`
+    );
+  }
+
+  const nextScheduledDate =
+    data.scheduledDate !== undefined
+      ? data.scheduledDate
+      : placementRow.scheduledDate;
+  if (nextScheduledDate) {
+    await assertPlacementDateAllowed(
+      nextScheduledDate,
+      nextType,
+      nextPublication,
+      placementId
+    );
+  }
 
   const extracted = extractPlacementMeta(placementRow.notes);
   const nextMeta = {
@@ -759,6 +1111,10 @@ export async function updatePlacementMetadata(
       data.interviewScheduled !== undefined
         ? data.interviewScheduled ?? undefined
         : extracted.meta.interviewScheduled,
+    committedImpressions:
+      data.committedImpressions !== undefined
+        ? data.committedImpressions ?? undefined
+        : extracted.meta.committedImpressions,
   };
   const nextCleanNotes =
     data.notes !== undefined ? data.notes : extracted.cleanNotes;
@@ -770,7 +1126,11 @@ export async function updatePlacementMetadata(
   if (data.type !== undefined) updatePayload.type = data.type;
   if (data.publication !== undefined) updatePayload.publication = data.publication;
   if (data.scheduledDate !== undefined) updatePayload.scheduledDate = data.scheduledDate;
-  if (data.status !== undefined) updatePayload.status = data.status;
+  if (isEvergreen) {
+    updatePayload.status = "Approved";
+  } else if (data.status !== undefined) {
+    updatePayload.status = data.status;
+  }
   if (data.copyProducer !== undefined) updatePayload.copyProducer = data.copyProducer;
   if (data.linkToPlacement !== undefined) updatePayload.linkToPlacement = data.linkToPlacement;
   if (data.conflictPreference !== undefined) {
@@ -826,14 +1186,6 @@ export async function bulkSchedulePlacements(
   for (const assignment of assignments) {
     const { campaignId, placementId, scheduledDate } = assignment;
 
-    // Validate weekday
-    const dateObj = new Date(scheduledDate + "T00:00:00");
-    const day = dateObj.getDay();
-    if (day === 0 || day === 6) {
-      errors.push({ placementId, error: "Date must be a weekday" });
-      continue;
-    }
-
     // Get the placement to check its type and publication
     const placement = await getPlacement(campaignId, placementId);
     if (!placement) {
@@ -841,27 +1193,19 @@ export async function bulkSchedulePlacements(
       continue;
     }
 
-    // Check capacity at write time for capped types
-    const limit = DAILY_CAPACITY_LIMITS[placement.type];
-    if (limit !== null) {
-      const existing = await db
-        .select({ id: schema.placements.id })
-        .from(schema.placements)
-        .where(
-          and(
-            eq(schema.placements.scheduledDate, scheduledDate),
-            eq(schema.placements.type, placement.type),
-            eq(schema.placements.publication, placement.publication)
-          )
-        );
-
-      if (existing.length >= limit) {
-        errors.push({
-          placementId,
-          error: `${placement.type} is full on ${scheduledDate} for ${placement.publication} (${existing.length}/${limit})`,
-        });
-        continue;
-      }
+    try {
+      await assertPlacementDateAllowed(
+        scheduledDate,
+        placement.type,
+        placement.publication,
+        placementId
+      );
+    } catch (error) {
+      errors.push({
+        placementId,
+        error: error instanceof Error ? error.message : "Date is unavailable",
+      });
+      continue;
     }
 
     // Perform the update
@@ -898,6 +1242,21 @@ export async function deleteCampaign(campaignId: string): Promise<boolean> {
   return (result.rowCount ?? 0) > 0;
 }
 
+export async function deletePlacement(
+  campaignId: string,
+  placementId: string
+): Promise<boolean> {
+  const result = await db
+    .delete(schema.placements)
+    .where(
+      and(
+        eq(schema.placements.id, placementId),
+        eq(schema.placements.campaignId, campaignId)
+      )
+    );
+  return (result.rowCount ?? 0) > 0;
+}
+
 // ─── Settings mutations ──────────────────────────────────────
 
 export async function upsertSetting(key: string, value: string): Promise<void> {
@@ -915,13 +1274,20 @@ export async function upsertSetting(key: string, value: string): Promise<void> {
 export async function saveOnboardingForm(
   campaignId: string,
   data: {
-    messaging?: string;
-    desiredAction?: string;
+    campaignObjective?: string;
+    keyMessage?: string;
+    talkingPoints?: string;
+    callToAction?: string;
+    targetAudience?: string;
+    toneGuidelines?: string;
     placementBriefs?: {
       placementId: string;
       brief: string;
+      copy?: string;
       link?: string;
       scheduledDate?: string;
+      imageUrl?: string;
+      logoUrl?: string;
     }[];
   }
 ): Promise<boolean> {
@@ -929,20 +1295,38 @@ export async function saveOnboardingForm(
   await db
     .update(schema.campaigns)
     .set({
-      onboardingMessaging: data.messaging ?? null,
-      onboardingDesiredAction: data.desiredAction ?? null,
+      onboardingCampaignObjective: data.campaignObjective ?? null,
+      onboardingKeyMessage: data.keyMessage ?? null,
+      onboardingTalkingPoints: data.talkingPoints ?? null,
+      onboardingCallToAction: data.callToAction ?? null,
+      onboardingTargetAudience: data.targetAudience ?? null,
+      onboardingToneGuidelines: data.toneGuidelines ?? null,
     })
     .where(eq(schema.campaigns.id, campaignId));
 
   // Save per-placement briefs, links, and onboarding-selected dates
   if (data.placementBriefs) {
-    for (const { placementId, brief, link, scheduledDate } of data.placementBriefs) {
+    for (const {
+      placementId,
+      brief,
+      copy,
+      link,
+      scheduledDate,
+      imageUrl,
+      logoUrl,
+    } of data.placementBriefs) {
       let canSetDate = false;
       const updates: Record<string, string | null> = {
         onboardingBrief: brief || null,
       };
       if (link !== undefined) {
         updates.linkToPlacement = link || null;
+      }
+      if (imageUrl !== undefined) {
+        updates.imageUrl = imageUrl || null;
+      }
+      if (logoUrl !== undefined) {
+        updates.logoUrl = logoUrl || null;
       }
 
       if (scheduledDate !== undefined) {
@@ -961,32 +1345,14 @@ export async function saveOnboardingForm(
           );
         }
 
-        const dateObj = new Date(scheduledDate + "T00:00:00");
-        const dayOfWeek = dateObj.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-          throw new Error("Placement dates must be weekdays");
-        }
-
         canSetDate = !placement.scheduledDate;
 
-        const limit = DAILY_CAPACITY_LIMITS[placement.type];
-        if (limit !== null && canSetDate) {
-          const existing = await db
-            .select({ id: schema.placements.id })
-            .from(schema.placements)
-            .where(
-              and(
-                eq(schema.placements.scheduledDate, scheduledDate),
-                eq(schema.placements.type, placement.type),
-                eq(schema.placements.publication, placement.publication)
-              )
-            );
-
-          if (existing.length >= limit) {
-            throw new Error(
-              `${placement.type} is full on ${scheduledDate} for ${placement.publication} (${existing.length}/${limit})`
-            );
-          }
+        if (canSetDate) {
+          await assertPlacementDateAllowed(
+            scheduledDate,
+            placement.type,
+            placement.publication
+          );
         }
 
         if (canSetDate) {
@@ -1010,6 +1376,18 @@ export async function saveOnboardingForm(
         .set(updates)
         .where(placementWhere);
 
+      if (copy !== undefined) {
+        await db
+          .update(schema.placements)
+          .set({ currentCopy: copy })
+          .where(
+            and(
+              eq(schema.placements.id, placementId),
+              eq(schema.placements.campaignId, campaignId)
+            )
+          );
+      }
+
       if (scheduledDate !== undefined) {
         const latest = await getPlacement(campaignId, placementId);
         if (!latest || latest.scheduledDate !== scheduledDate) {
@@ -1028,27 +1406,52 @@ export async function submitOnboardingForm(
   campaignId: string,
   roundId: string,
   data: {
-    messaging: string;
-    desiredAction: string;
-    placementBriefs: {
+    campaignObjective: string;
+    keyMessage: string;
+    talkingPoints: string;
+    callToAction: string;
+    targetAudience: string;
+    toneGuidelines: string;
+    placementIds?: string[];
+    placementBriefs?: {
       placementId: string;
       brief: string;
+      copy?: string;
       link?: string;
       scheduledDate?: string;
+      imageUrl?: string;
+      logoUrl?: string;
     }[];
   }
 ): Promise<boolean> {
   await saveOnboardingForm(campaignId, data);
 
+  const campaignRecord = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  const billingMeta = extractBillingPortalMeta(campaignRecord?.notes).meta;
+  const clientProvidesCopy = billingMeta.wantsPeakCopy === false;
+
   // Assign any unassigned placements to this round
-  for (const { placementId } of data.placementBriefs) {
+  const placementIds =
+    data.placementIds && data.placementIds.length > 0
+      ? data.placementIds
+      : (data.placementBriefs ?? []).map((p) => p.placementId);
+
+  for (const placementId of placementIds) {
     const placement = await getPlacement(campaignId, placementId);
     const nextStatus =
-      placement && isPodcastPublication(placement.publication)
-        ? isPodcastInterviewType(placement.type)
-          ? "Drafting Questions"
-          : "Drafting Script"
-        : "Copywriting in Progress";
+      clientProvidesCopy && placement
+        ? isPodcastPublication(placement.publication)
+          ? isPodcastInterviewType(placement.type)
+            ? "Approved Interview"
+            : "Approved Script"
+          : "Approved"
+        : placement && isPodcastPublication(placement.publication)
+          ? isPodcastInterviewType(placement.type)
+            ? "Drafting Questions"
+            : "Drafting Script"
+          : "Copywriting in Progress";
     await db
       .update(schema.placements)
       .set({
@@ -1078,8 +1481,11 @@ export async function submitOnboardingForm(
     if (!campaign.onboardingSubmittedAt) {
       updates.onboardingSubmittedAt = new Date();
     }
-    if (campaign.status === "Waiting on Onboarding") {
-      updates.status = "Onboarding Form Complete" satisfies CampaignStatus;
+    if (
+      campaign.status === "Waiting for onboarding" ||
+      campaign.status === "Onboarding to be sent"
+    ) {
+      updates.status = "Active" satisfies CampaignStatus;
     }
     if (Object.keys(updates).length > 0) {
       await db
@@ -1092,7 +1498,63 @@ export async function submitOnboardingForm(
   return true;
 }
 
+export async function updateCampaignInvoiceDashboardStatus(
+  invoiceLinkId: string,
+  dashboardStatus: DashboardInvoiceStatus
+): Promise<boolean> {
+  const result = await db
+    .update(schema.campaignInvoices)
+    .set({ dashboardStatus })
+    .where(eq(schema.campaignInvoices.id, invoiceLinkId));
+
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function updateCampaignInvoiceNotes(
+  invoiceLinkId: string,
+  notes: string | null
+): Promise<boolean> {
+  const result = await db
+    .update(schema.campaignInvoices)
+    .set({ notes })
+    .where(eq(schema.campaignInvoices.id, invoiceLinkId));
+
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function addCampaignManagerNote(
+  campaignId: string,
+  body: string,
+  authorName?: CampaignManager
+): Promise<boolean> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  if (!campaign) return false;
+
+  const normalizedBody = body.trim();
+  if (!normalizedBody) {
+    throw new Error("Note body is required");
+  }
+
+  const normalizedAuthor = authorName ?? normalizeCampaignManager(campaign.campaignManager);
+
+  await db.insert(schema.campaignManagerNotes).values({
+    id: genId("cmn"),
+    campaignId,
+    authorName: normalizedAuthor,
+    body: normalizedBody,
+    createdAt: new Date(),
+  });
+
+  return true;
+}
+
 // ─── Internal helpers ────────────────────────────────────────
+
+function normalizeCampaignManager(value: string | null | undefined): CampaignManager {
+  return value && isCampaignManager(value) ? value : "Brett";
+}
 
 async function findOrCreateClient(name: string): Promise<{ id: string; name: string; portalId: string }> {
   const trimmed = name.trim();

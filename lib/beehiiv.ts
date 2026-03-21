@@ -1,6 +1,7 @@
 import type { PerformanceStats } from "./types";
 
 const API_BASE = "https://api.beehiiv.com/v2";
+const PEAK_MONEY_PUBLICATION_ID = "pub_ede4ea1a-d509-49a3-a398-5f4ee9e114a1";
 
 function getHeaders(): Record<string, string> {
   const key = process.env.BEEHIIV_API_KEY;
@@ -11,10 +12,17 @@ function getHeaders(): Record<string, string> {
   };
 }
 
-function getPublicationId(): string {
+function getDefaultPublicationId(): string {
   const id = process.env.BEEHIIV_PUBLICATION_ID;
   if (!id) throw new Error("BEEHIIV_PUBLICATION_ID is not set");
   return id;
+}
+
+function getPublicationIdForPlacement(publication?: string): string {
+  if (publication === "Peak Money") {
+    return PEAK_MONEY_PUBLICATION_ID;
+  }
+  return getDefaultPublicationId();
 }
 
 // ─── URL normalization ──────────────────────────────────────
@@ -26,6 +34,16 @@ export function normalizeUrl(url: string): string {
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
     .replace(/[?#].*$/, "")
+    .replace(/\/+$/, "");
+}
+
+/** Keeps query params so placement links with distinct UTMs remain unique */
+export function normalizeUrlPreservingQuery(url: string): string {
+  return url
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/#.*$/, "")
     .replace(/\/+$/, "");
 }
 
@@ -68,13 +86,74 @@ interface BeehiivListResponse {
   total_pages: number;
 }
 
+const BEEHIIV_PUBLICATION_TIME_ZONE = "America/Toronto";
+
+function formatTimestampAsDate(
+  timestampSeconds: number,
+  timeZone = BEEHIIV_PUBLICATION_TIME_ZONE
+): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(timestampSeconds * 1000));
+}
+
+export function getPostScheduledDate(
+  post: Pick<BeehiivPost, "publish_date">,
+  timeZone = BEEHIIV_PUBLICATION_TIME_ZONE
+): string | null {
+  if (!post.publish_date) return null;
+  return formatTimestampAsDate(post.publish_date, timeZone);
+}
+
+export function doesPostMatchScheduledDate(
+  post: Pick<BeehiivPost, "publish_date">,
+  scheduledDate?: string
+): boolean {
+  if (!scheduledDate) return true;
+  const postDate = getPostScheduledDate(post);
+  return postDate === scheduledDate;
+}
+
+function getCalendarDayDistance(post: Pick<BeehiivPost, "publish_date">, scheduledDate: string): number {
+  const postDate = getPostScheduledDate(post);
+  if (!postDate) return Number.POSITIVE_INFINITY;
+
+  const postUtc = Date.parse(`${postDate}T00:00:00Z`);
+  const scheduledUtc = Date.parse(`${scheduledDate}T00:00:00Z`);
+  return Math.abs(postUtc - scheduledUtc);
+}
+
+export function findMatchingClickEntry(
+  clicks: BeehiivClickEntry[],
+  linkToPlacement: string
+): BeehiivClickEntry | null {
+  const normalizedFullLink = normalizeUrlPreservingQuery(linkToPlacement);
+  const exactUrlMatch =
+    clicks.find(
+      (click) =>
+        typeof click.url === "string" &&
+        normalizeUrlPreservingQuery(click.url) === normalizedFullLink
+    ) ?? null;
+  if (exactUrlMatch) return exactUrlMatch;
+
+  const normalizedBaseLink = normalizeUrl(linkToPlacement);
+  return (
+    clicks.find((click) => normalizeUrl(click.base_url) === normalizedBaseLink) ??
+    null
+  );
+}
+
 // ─── API methods ────────────────────────────────────────────
 
 /** Fetch a single post by ID with stats expanded */
 export async function fetchPostById(
-  postId: string
+  postId: string,
+  publication?: string
 ): Promise<BeehiivPost | null> {
-  const pubId = getPublicationId();
+  const pubId = getPublicationIdForPlacement(publication);
   const res = await fetch(
     `${API_BASE}/publications/${pubId}/posts/${postId}?expand[]=stats`,
     { headers: getHeaders() }
@@ -89,27 +168,36 @@ export async function fetchPostById(
 
 /**
  * Paginate through Beehiiv posts to find one whose click data contains
- * the given linkToPlacement URL. Uses a +/-3 day window around scheduledDate
- * to limit the search scope.
+ * the given linkToPlacement URL. Prefer an exact scheduled-date match when the
+ * same URL appears in multiple sends, then fall back to the nearest post inside
+ * a +/-3 day search window.
  */
 export async function findPostByLink(
   linkToPlacement: string,
-  scheduledDate?: string
+  scheduledDate?: string,
+  publication?: string
 ): Promise<{ post: BeehiivPost; clickEntry: BeehiivClickEntry } | null> {
-  const pubId = getPublicationId();
-  const normalizedLink = normalizeUrl(linkToPlacement);
+  const pubId = getPublicationIdForPlacement(publication);
 
   // Build date window (±3 days around scheduled date, or no bounds)
   let windowStart: number | null = null;
   let windowEnd: number | null = null;
   if (scheduledDate) {
-    const d = new Date(scheduledDate);
+    const d = new Date(`${scheduledDate}T12:00:00Z`);
     const threeDays = 3 * 24 * 60 * 60 * 1000;
     windowStart = Math.floor((d.getTime() - threeDays) / 1000);
     windowEnd = Math.floor((d.getTime() + threeDays) / 1000);
   }
 
   const maxPages = 10;
+
+  let bestNearbyMatch:
+    | {
+        post: BeehiivPost;
+        clickEntry: BeehiivClickEntry;
+        dateDistance: number;
+      }
+    | null = null;
 
   for (let page = 1; page <= maxPages; page++) {
     const url = new URL(`${API_BASE}/publications/${pubId}/posts`);
@@ -142,9 +230,21 @@ export async function findPostByLink(
       // Check click data for matching URL
       const clicks = post.stats?.clicks;
       if (clicks) {
-        for (const click of clicks) {
-          if (normalizeUrl(click.base_url) === normalizedLink) {
-            return { post, clickEntry: click };
+        const clickEntry = findMatchingClickEntry(clicks, linkToPlacement);
+        if (clickEntry) {
+          if (scheduledDate && doesPostMatchScheduledDate(post, scheduledDate)) {
+            return { post, clickEntry };
+          }
+
+          const dateDistance = scheduledDate
+            ? getCalendarDayDistance(post, scheduledDate)
+            : Number.POSITIVE_INFINITY;
+
+          if (
+            !bestNearbyMatch ||
+            dateDistance < bestNearbyMatch.dateDistance
+          ) {
+            bestNearbyMatch = { post, clickEntry, dateDistance };
           }
         }
       }
@@ -152,6 +252,13 @@ export async function findPostByLink(
 
     // Stop if we've reached the last page
     if (page >= json.total_pages) break;
+  }
+
+  if (bestNearbyMatch) {
+    return {
+      post: bestNearbyMatch.post,
+      clickEntry: bestNearbyMatch.clickEntry,
+    };
   }
 
   return null;

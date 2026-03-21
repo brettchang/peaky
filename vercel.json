@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/email-sync",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/slack-alerts",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/campaign-email-insights",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/campaign-morning-summary",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

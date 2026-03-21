@@ -8,6 +8,11 @@ import {
   updatePlacementCopy,
   updatePlacementLink,
 } from "@/lib/db";
+import {
+  isClientCopyPlacement,
+  isPodcastInterviewType,
+  isPodcastPublication,
+} from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -49,6 +54,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (
+    !isClientCopyPlacement(placement) &&
     placement.status !== "Sent for Approval" &&
     placement.status !== "Peak Team Review Complete" &&
     placement.status !== "Script Review by Client" &&
@@ -63,12 +69,32 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const nextCopy =
+    typeof body.editedCopy === "string" && body.editedCopy !== placement.currentCopy
+      ? body.editedCopy
+      : placement.currentCopy;
+  if (!nextCopy.trim()) {
+    return NextResponse.json(
+      { error: "Copy is required before approval" },
+      { status: 400 }
+    );
+  }
+
   const requiresPlacementLink =
-    placement.status === "Sent for Approval" ||
-    placement.status === "Peak Team Review Complete";
+    !isPodcastPublication(placement.publication) &&
+    (isClientCopyPlacement(placement) ||
+      placement.status === "Sent for Approval" ||
+      placement.status === "Peak Team Review Complete");
   if (requiresPlacementLink && !linkToPlacement) {
     return NextResponse.json(
       { error: "linkToPlacement is required" },
+      { status: 400 }
+    );
+  }
+
+  if (placement.type === "Primary" && (!placement.logoUrl || !placement.imageUrl)) {
+    return NextResponse.json(
+      { error: "Primary placements require both logoUrl and imageUrl before approval" },
       { status: 400 }
     );
   }
@@ -94,6 +120,10 @@ export async function POST(request: NextRequest) {
         : placement.status === "Questions In Review" ||
             placement.status === "Client Reviewing Interview"
           ? "Approved Interview"
+          : isPodcastPublication(placement.publication)
+            ? isPodcastInterviewType(placement.type)
+              ? "Approved Interview"
+              : "Approved Script"
           : "Approved";
 
   const updated = await updatePlacementStatus(campaignId, placementId, approvedStatus);

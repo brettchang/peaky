@@ -18,7 +18,9 @@ export {
   getCampaignInvoiceLinks,
   getPlacementInvoiceLinks,
   getAllInvoiceLinks,
+  getInvoiceLinkById,
   getCapacityForDateRange,
+  getPlacementsScheduledOn,
   getSetting,
 } from "./queries";
 
@@ -28,6 +30,7 @@ export {
   updatePlacementCopy,
   updatePlacementScheduledDate,
   createOnboardingRound,
+  updateOnboardingRoundLabel,
   createCampaign,
   markOnboardingComplete,
   markBillingOnboardingComplete,
@@ -37,6 +40,7 @@ export {
   updatePlacementOnboardingRound,
   updatePlacementLink,
   updateCampaignMetadata,
+  updateCampaignPandaDoc,
   updatePlacementMetadata,
   syncPlacementBeehiivStats,
   bulkSchedulePlacements,
@@ -45,6 +49,10 @@ export {
   saveBillingOnboardingForm,
   submitBillingOnboardingForm,
   updateBillingOnboardingByAdmin,
+  updateCampaignInvoiceDashboardStatus,
+  updateCampaignInvoiceNotes,
+  addCampaignManagerNote,
   upsertSetting,
   deleteCampaign,
+  deletePlacement,
 } from "./mutations";

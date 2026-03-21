@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getXeroConfig } from "@/lib/env";
 import { saveXeroConnection } from "@/lib/xero";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL!;
-  const clientId = process.env.XERO_CLIENT_ID!;
-  const clientSecret = process.env.XERO_CLIENT_SECRET!;
+  let baseUrl: string;
+  let clientId: string;
+  let clientSecret: string;
+
+  try {
+    ({ baseUrl, clientId, clientSecret } = getXeroConfig());
+  } catch (error) {
+    console.error("Xero callback configuration error:", error);
+    return NextResponse.redirect(
+      `${request.nextUrl.origin}/dashboard/invoicing?xero_error=config_missing`
+    );
+  }
+
   const redirectUri = `${baseUrl}/api/xero/callback`;
 
   try {

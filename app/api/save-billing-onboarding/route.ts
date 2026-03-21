@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
       specificInvoicingInstructions,
     } = body;
 
@@ -35,6 +37,15 @@ export async function POST(request: NextRequest) {
     if (!campaign) {
       return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
     }
+    if (campaign.complementaryCampaign) {
+      return NextResponse.json(
+        {
+          error:
+            "Campaign is marked as complementary and does not require billing onboarding.",
+        },
+        { status: 400 }
+      );
+    }
     if (campaign.billingOnboarding?.complete) {
       return NextResponse.json(
         { error: "Billing onboarding has already been submitted" },
@@ -51,6 +62,8 @@ export async function POST(request: NextRequest) {
       billingAddress,
       billingContactName,
       billingContactEmail,
+      ioSigningContactName,
+      ioSigningContactEmail,
       specificInvoicingInstructions,
     });
     if (!ok) {
@@ -71,4 +84,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

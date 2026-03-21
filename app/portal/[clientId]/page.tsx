@@ -1,9 +1,17 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCampaignsForClient } from "@/lib/db";
+import { getCampaignsForClient, getSetting } from "@/lib/db";
 import { PlacementDashboard } from "@/components/PlacementDashboard";
-import { isApprovedStatus, isClientReviewStatus } from "@/lib/types";
+import {
+  isApprovedStatus,
+  isClientCopyPlacement,
+  isClientReviewStatus,
+} from "@/lib/types";
+import {
+  onboardingOverridesSettingKey,
+  parseCampaignOnboardingOverrides,
+} from "@/lib/onboarding-overrides";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +39,14 @@ export default async function PortalHomePage({ params }: PageProps) {
   }
 
   const { client, campaigns } = data;
+  const overrideEntries = await Promise.all(
+    campaigns.map(async (campaign) => {
+      const key = onboardingOverridesSettingKey(campaign.id);
+      const raw = await getSetting(key);
+      return [campaign.id, parseCampaignOnboardingOverrides(raw)] as const;
+    })
+  );
+  const overridesByCampaignId = new Map(overrideEntries);
   const placements = campaigns.flatMap((campaign) =>
     campaign.placements.map((placement) => ({
       campaignId: campaign.id,
@@ -41,6 +57,8 @@ export default async function PortalHomePage({ params }: PageProps) {
 
   const todayKey = toDateKey(new Date());
   const formRows = campaigns.flatMap((campaign) => {
+    if (campaign.category === "Evergreen") return [];
+
     const copyFormRows = campaign.onboardingRounds.map((round, index) => {
       const roundPlacements = campaign.placements.filter(
         (placement) => placement.onboardingRoundId === round.id
@@ -57,15 +75,18 @@ export default async function PortalHomePage({ params }: PageProps) {
       return {
         id: `${campaign.id}-${round.id}`,
         type: "Copy Onboarding" as const,
+        isInitialRound: index === 0,
         campaignId: campaign.id,
         campaignName: campaign.name,
         formId: round.id,
+        href: `/portal/${client.portalId}/${campaign.id}/form/${round.id}`,
         label: round.label || `Round ${index + 1}`,
         complete: round.complete,
         placementCount: roundPlacements.length,
         firstPlacementDate,
         dueDate,
         overdue: !round.complete && !!dueDate && dueDate < todayKey,
+        overridden: Boolean(overridesByCampaignId.get(campaign.id)?.rounds[round.id]),
       };
     });
 
@@ -78,14 +99,16 @@ export default async function PortalHomePage({ params }: PageProps) {
       ? subtractBusinessDays(firstPlacementDate, 5)
       : undefined;
 
-    const billingFormRow = campaign.billingOnboarding
+    const billingFormRow = campaign.billingOnboarding && !campaign.complementaryCampaign
       ? [
           {
             id: `${campaign.id}-billing`,
             type: "Billing Onboarding" as const,
+            isInitialRound: false,
             campaignId: campaign.id,
             campaignName: campaign.name,
             formId: "billing",
+            href: `/portal/${client.portalId}/${campaign.id}/form/billing`,
             label: "Billing Form",
             complete: campaign.billingOnboarding.complete,
             placementCount: campaign.placements.length,
@@ -95,15 +118,20 @@ export default async function PortalHomePage({ params }: PageProps) {
               !campaign.billingOnboarding.complete &&
               !!dueDate &&
               dueDate < todayKey,
+            overridden: Boolean(overridesByCampaignId.get(campaign.id)?.billing),
           },
         ]
       : [];
 
     return [...copyFormRows, ...billingFormRow];
   });
+  const hubFormRows = formRows.filter((row) => {
+    if (row.overridden || row.complete || row.placementCount <= 0) return false;
+    return true;
+  });
 
   const onboardingActionRows = formRows
-    .filter((row) => !row.complete && row.placementCount > 0)
+    .filter((row) => !row.complete && !row.overridden && row.placementCount > 0)
     .map((row) => ({
       id: row.id,
       campaignId: row.campaignId,
@@ -114,23 +142,32 @@ export default async function PortalHomePage({ params }: PageProps) {
         : "No hard deadline yet. A due date appears once a placement date is attached.",
       isUrgent: !!row.overdue,
       ctaLabel: "Open Form",
-      href: `/portal/${client.portalId}/${row.campaignId}`,
+      href: row.href,
       dueDate: row.dueDate,
     }));
 
   const copyReviewActionRows = campaigns.flatMap((campaign) =>
     campaign.placements
-      .filter((placement) => isClientReviewStatus(placement.status))
+      .filter(
+        (placement) =>
+          isClientReviewStatus(placement.status) ||
+          (isClientCopyPlacement(placement) && !isApprovedStatus(placement.status))
+      )
       .map((placement) => ({
         id: `copy-review-${placement.id}`,
         campaignId: campaign.id,
         campaignName: campaign.name,
-        title: `Client Review · ${placement.type} (${placement.publication})`,
+        title: `${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Add Copy" : "Client Review"} · ${placement.type} (${placement.publication})`,
         description: placement.scheduledDate
-          ? `Scheduled ${formatDateLong(placement.scheduledDate)}. Please review and approve this asset.`
-          : "Please review and approve this asset.",
+          ? `${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Scheduled" : "Review due for"} ${formatDateLong(placement.scheduledDate)}. ${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Add and approve the final copy in the portal." : "Please review and approve this asset."}`
+          : isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status)
+            ? "Add and approve the final copy in the portal."
+            : "Please review and approve this asset.",
         isUrgent: false,
-        ctaLabel: "Review Copy",
+        ctaLabel:
+          isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status)
+            ? "Add Copy"
+            : "Review Copy",
         href: `/portal/${client.portalId}/${campaign.id}/${placement.id}`,
         dueDate: placement.scheduledDate
           ? subtractBusinessDays(placement.scheduledDate, 1)
@@ -148,14 +185,20 @@ export default async function PortalHomePage({ params }: PageProps) {
   );
 
   const placementCount = placements.length;
+  const hasStandardCampaigns = campaigns.some(
+    (campaign) => campaign.category !== "Evergreen"
+  );
   const approvedCount = placements.filter(
     (row) => isApprovedStatus(row.placement.status)
   ).length;
   const reviewCount = placements.filter(
-    (row) => isClientReviewStatus(row.placement.status)
+    (row) =>
+      isClientReviewStatus(row.placement.status) ||
+      (isClientCopyPlacement(row.placement) &&
+        !isApprovedStatus(row.placement.status))
   ).length;
   const pendingFormCount = formRows.filter(
-    (row) => !row.complete && row.placementCount > 0
+    (row) => !row.complete && !row.overridden && row.placementCount > 0
   ).length;
 
   return (
@@ -175,7 +218,9 @@ export default async function PortalHomePage({ params }: PageProps) {
           Thanks for working with The Peak. We&apos;ll share copy and placement analytics here.
         </p>
         <p className="mt-2 text-sm text-gray-600">
-          Process: complete forms, we produce copy, then you edit, suggest changes, or approve.
+          {hasStandardCampaigns
+            ? "Process: complete forms, then either we produce copy for review or your team adds and approves copy directly in the portal."
+            : "Review placements and performance updates in one place."}
         </p>
       </div>
 
@@ -240,6 +285,7 @@ export default async function PortalHomePage({ params }: PageProps) {
                       </div>
                       <Link
                         href={row.href}
+                        prefetch={false}
                         className="shrink-0 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800"
                       >
                         {row.ctaLabel}
@@ -254,13 +300,13 @@ export default async function PortalHomePage({ params }: PageProps) {
           <div className="rounded-lg border border-gray-200 bg-white px-5 py-4">
             <h2 className="text-sm font-semibold text-gray-900">Onboarding Forms</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Open each form and check completion status.
+              Each form opens on its own page.
             </p>
             <div className="mt-3 space-y-3">
-              {formRows.length === 0 && (
-                <p className="text-sm text-gray-500">No onboarding forms yet.</p>
+              {hubFormRows.length === 0 && (
+                <p className="text-sm text-gray-500">No open onboarding forms right now.</p>
               )}
-              {formRows.slice(0, 6).map((row) => (
+              {hubFormRows.slice(0, 6).map((row) => (
                 <div
                   key={row.id}
                   className="rounded-md border border-gray-200 px-4 py-3"
@@ -271,21 +317,22 @@ export default async function PortalHomePage({ params }: PageProps) {
                         {row.campaignName} · {row.type}
                       </p>
                       <p className="mt-1 text-xs text-gray-600">
-                        {row.label} · {row.complete ? "Completed" : "Not completed"}
+                        {row.label} · Not completed
                       </p>
                     </div>
                     <Link
-                      href={`/portal/${client.portalId}/${row.campaignId}`}
+                      href={row.href}
+                      prefetch={false}
                       className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                     >
-                      View
+                      Open
                     </Link>
                   </div>
                 </div>
               ))}
-              {formRows.length > 6 && (
+              {hubFormRows.length > 6 && (
                 <p className="text-xs text-gray-500">
-                  Showing 6 of {formRows.length} forms.
+                  Showing 6 of {hubFormRows.length} forms.
                 </p>
               )}
             </div>

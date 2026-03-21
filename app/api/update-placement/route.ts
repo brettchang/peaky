@@ -3,38 +3,57 @@ import { revalidatePath } from "next/cache";
 import { updatePlacementMetadata } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
-  const { campaignId, placementId, ...fields } = body;
+  try {
+    const body = await request.json();
+    const { campaignId, placementId, ...fields } = body;
 
-  if (!campaignId || !placementId) {
-    return NextResponse.json(
-      { error: "campaignId and placementId are required" },
-      { status: 400 }
-    );
-  }
-
-  for (const key of ["scheduledDate", "scheduledEndDate"] as const) {
-    const value = fields[key];
-    if (
-      value !== undefined &&
-      value !== null &&
-      (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
-    ) {
+    if (!campaignId || !placementId) {
       return NextResponse.json(
-        { error: `${key} must be YYYY-MM-DD, null, or omitted` },
+        { error: "campaignId and placementId are required" },
         { status: 400 }
       );
     }
-  }
 
-  const updated = await updatePlacementMetadata(campaignId, placementId, fields);
-  if (!updated) {
-    return NextResponse.json(
-      { error: "Placement not found" },
-      { status: 404 }
-    );
-  }
+    for (const key of ["scheduledDate", "scheduledEndDate"] as const) {
+      const value = fields[key];
+      if (
+        value !== undefined &&
+        value !== null &&
+        (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+      ) {
+        return NextResponse.json(
+          { error: `${key} must be YYYY-MM-DD, null, or omitted` },
+          { status: 400 }
+        );
+      }
+    }
 
-  revalidatePath("/dashboard", "layout");
-  return NextResponse.json({ success: true });
+    if (
+      fields.committedImpressions !== undefined &&
+      fields.committedImpressions !== null &&
+      (!Number.isFinite(fields.committedImpressions) ||
+        fields.committedImpressions < 0 ||
+        !Number.isInteger(fields.committedImpressions))
+    ) {
+      return NextResponse.json(
+        { error: "committedImpressions must be a non-negative integer, null, or omitted" },
+        { status: 400 }
+      );
+    }
+
+    const updated = await updatePlacementMetadata(campaignId, placementId, fields);
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Placement not found" },
+        { status: 404 }
+      );
+    }
+
+    revalidatePath("/dashboard", "layout");
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Something went wrong";
+    const status = message.startsWith("Invalid type/publication combination") ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
 }

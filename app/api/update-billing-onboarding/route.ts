@@ -9,6 +9,8 @@ interface UpdateBillingPayload {
   companyName?: string;
   billingContactName?: string;
   billingContactEmail?: string;
+  ioSigningContactName?: string;
+  ioSigningContactEmail?: string;
   billingAddress?: string;
   invoiceCadence?: InvoiceCadence;
   specialInstructions?: string;
@@ -16,7 +18,7 @@ interface UpdateBillingPayload {
 
 export async function POST(request: NextRequest) {
   const cookie = request.cookies.get(DASHBOARD_COOKIE_NAME);
-  if (!isDashboardAuthenticated(cookie?.value)) {
+  if (!(await isDashboardAuthenticated(cookie?.value))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -33,6 +35,8 @@ export async function POST(request: NextRequest) {
     poNumber: body.companyName,
     billingContactName: body.billingContactName,
     billingContactEmail: body.billingContactEmail,
+    ioSigningContactName: body.ioSigningContactName,
+    ioSigningContactEmail: body.ioSigningContactEmail,
     billingAddress: body.billingAddress,
     invoiceCadence: body.invoiceCadence,
     specialInstructions: body.specialInstructions,

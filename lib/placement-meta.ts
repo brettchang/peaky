@@ -1,6 +1,7 @@
 interface PlacementPortalMeta {
   scheduledEndDate?: string;
   interviewScheduled?: boolean;
+  committedImpressions?: number;
 }
 
 const PLACEMENT_META_START = "<!-- placement-meta:start -->";
@@ -31,8 +32,25 @@ export function extractPlacementMeta(notes?: string | null): {
     meta = {};
   }
 
+  const committedImpressions =
+    typeof meta.committedImpressions === "number" &&
+    Number.isFinite(meta.committedImpressions) &&
+    meta.committedImpressions >= 0
+      ? Math.trunc(meta.committedImpressions)
+      : undefined;
+
   const cleanNotes = [before, after].filter(Boolean).join("\n\n").trim() || null;
-  return { cleanNotes, meta };
+  return {
+    cleanNotes,
+    meta: {
+      scheduledEndDate: meta.scheduledEndDate,
+      interviewScheduled:
+        typeof meta.interviewScheduled === "boolean"
+          ? meta.interviewScheduled
+          : undefined,
+      committedImpressions,
+    },
+  };
 }
 
 export function attachPlacementMeta(
@@ -41,13 +59,21 @@ export function attachPlacementMeta(
 ): string {
   const hasMeta =
     typeof meta.scheduledEndDate === "string" ||
-    typeof meta.interviewScheduled === "boolean";
+    typeof meta.interviewScheduled === "boolean" ||
+    typeof meta.committedImpressions === "number";
   if (!hasMeta) return cleanNotes ?? "";
 
   const normalized: PlacementPortalMeta = {};
   if (meta.scheduledEndDate) normalized.scheduledEndDate = meta.scheduledEndDate;
   if (typeof meta.interviewScheduled === "boolean") {
     normalized.interviewScheduled = meta.interviewScheduled;
+  }
+  if (
+    typeof meta.committedImpressions === "number" &&
+    Number.isFinite(meta.committedImpressions) &&
+    meta.committedImpressions >= 0
+  ) {
+    normalized.committedImpressions = Math.trunc(meta.committedImpressions);
   }
 
   const block = `${PLACEMENT_META_START}\n${JSON.stringify(normalized)}\n${PLACEMENT_META_END}`;

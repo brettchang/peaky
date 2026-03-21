@@ -32,6 +32,7 @@ export function buildDashboardTasks(
       }
 
       if (
+        campaign.category !== "Evergreen" &&
         placement.status === "Copywriting in Progress" &&
         placement.copyVersion > 0 &&
         placement.currentCopy.trim()
@@ -51,7 +52,7 @@ export function buildDashboardTasks(
         });
       }
 
-      if (!placement.scheduledDate) continue;
+      if (campaign.category === "Evergreen" || !placement.scheduledDate) continue;
       const daysUntil = daysFromToday(todayKey, placement.scheduledDate);
       if (daysUntil < 0 || daysUntil > 7) continue;
 

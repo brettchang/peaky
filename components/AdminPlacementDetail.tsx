@@ -8,6 +8,7 @@ import {
   Publication,
   PlacementStatus,
   AdLineItem,
+  DateRangeCapacity,
   PUBLICATIONS,
   PODCAST_PUBLICATION,
   PODCAST_PLACEMENT_TYPES,
@@ -16,8 +17,17 @@ import {
 } from "@/lib/types";
 import type { PlacementInvoiceLink } from "@/lib/xero-types";
 import { CopyEditor } from "@/components/CopyEditor";
+import { GenerateCopyButton } from "@/components/GenerateCopyButton";
 import { InvoiceLinkModal } from "@/components/InvoiceLinkModal";
 import { InvoiceStatusBadge } from "@/components/InvoiceStatusBadge";
+import { getBlobDownloadUrl, getBlobViewUrl } from "@/lib/blob-url";
+import { isAiCopyGeneratableType } from "@/lib/types";
+import {
+  ADMIN_SCHEDULE_WINDOW_DAYS,
+  ensureDateOption,
+  getAvailableCapacityDates,
+  getTodayDateKey,
+} from "@/lib/schedule-capacity";
 
 const PLACEMENT_TYPES: PlacementType[] = [
   "Primary",
@@ -34,14 +44,23 @@ const CONFLICT_OPTIONS = [
   { value: "Date is crucial", label: "Date is crucial" },
 ];
 
+function isPodcastRollType(type: PlacementType): boolean {
+  return type === ":30 Pre-Roll" || type === ":30 Mid-Roll";
+}
+
 interface AdminPlacementDetailProps {
   campaignId: string;
   placement: Placement;
   onboardingAnswers?: {
     roundLabel?: string;
     roundComplete?: boolean;
-    campaignMessaging?: string;
-    campaignDesiredAction?: string;
+    campaignObjective?: string;
+    keyMessage?: string;
+    talkingPoints?: string;
+    callToAction?: string;
+    targetAudience?: string;
+    toneGuidelines?: string;
+    specialInvoicingInstructions?: string;
     placementBrief?: string;
     placementLink?: string;
     logoUrl?: string;
@@ -70,6 +89,7 @@ export function AdminPlacementDetail({
     scheduledDate: placement.scheduledDate ?? "",
     scheduledEndDate: placement.scheduledEndDate ?? "",
     interviewScheduled: placement.interviewScheduled ?? false,
+    committedImpressions: placement.committedImpressions?.toString() ?? "",
     status: placement.status,
     copyProducer: placement.copyProducer ?? "",
     linkToPlacement: placement.linkToPlacement ?? "",
@@ -83,6 +103,15 @@ export function AdminPlacementDetail({
     placement.linkToPlacement ?? ""
   );
   const [savingPlacementLink, setSavingPlacementLink] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<
+    "logoUrl" | "imageUrl" | null
+  >(null);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
+  const [capacityLoading, setCapacityLoading] = useState(false);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
+  const todayKey = getTodayDateKey();
 
   // Copy editing state
   const [savedCopy, setSavedCopy] = useState(placement.currentCopy);
@@ -95,13 +124,84 @@ export function AdminPlacementDetail({
     setSavedCopy(placement.currentCopy);
   }, [placement.id, placement.currentCopy]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const toDateKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + ADMIN_SCHEDULE_WINDOW_DAYS);
+
+    setCapacityLoading(true);
+    setCapacityError(null);
+
+    fetch(
+      `/api/schedule-capacity?startDate=${toDateKey(start)}&endDate=${toDateKey(end)}`
+    )
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to load available dates");
+        }
+        return (await res.json()) as DateRangeCapacity;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setCapacityDays(data.days || []);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCapacityError(
+          error instanceof Error ? error.message : "Failed to load available dates"
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCapacityLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const currentCopy = editedCopy ?? savedCopy;
 
   const handleCopyChange = useCallback((val: string) => {
     setEditedCopy(val);
   }, []);
 
+  function formatDateLabel(date: string): string {
+    return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function getAvailableDateOptions(): string[] {
+    return ensureDateOption(
+      getAvailableCapacityDates({
+        capacityDays,
+        publication: form.publication,
+        type: form.type,
+        todayKey,
+        getReservedCount: (date) => (placement.scheduledDate === date ? -1 : 0),
+      }),
+      form.scheduledDate
+    );
+  }
+
   function handleCancel() {
+    setSaveError(null);
     setForm({
       name: placement.name,
       type: placement.type,
@@ -109,6 +209,7 @@ export function AdminPlacementDetail({
       scheduledDate: placement.scheduledDate ?? "",
       scheduledEndDate: placement.scheduledEndDate ?? "",
       interviewScheduled: placement.interviewScheduled ?? false,
+      committedImpressions: placement.committedImpressions?.toString() ?? "",
       status: placement.status,
       copyProducer: placement.copyProducer ?? "",
       linkToPlacement: placement.linkToPlacement ?? "",
@@ -122,6 +223,11 @@ export function AdminPlacementDetail({
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
+    const parsedCommittedImpressions =
+      form.committedImpressions.trim() === ""
+        ? null
+        : Number.parseInt(form.committedImpressions, 10);
     try {
       const res = await fetch("/api/update-placement", {
         method: "POST",
@@ -135,6 +241,9 @@ export function AdminPlacementDetail({
           scheduledDate: form.scheduledDate || null,
           scheduledEndDate: form.scheduledEndDate || null,
           interviewScheduled: form.interviewScheduled,
+          committedImpressions: Number.isFinite(parsedCommittedImpressions)
+            ? parsedCommittedImpressions
+            : null,
           status: form.status,
           copyProducer: form.copyProducer || null,
           linkToPlacement: form.linkToPlacement || null,
@@ -147,6 +256,9 @@ export function AdminPlacementDetail({
       if (res.ok) {
         setEditing(false);
         router.refresh();
+      } else {
+        const data = await res.json();
+        setSaveError(data.error || "Failed to save placement");
       }
     } finally {
       setSaving(false);
@@ -206,6 +318,36 @@ export function AdminPlacementDetail({
       }
     } finally {
       setSavingCopy(false);
+    }
+  }
+
+  async function handleAssetUpload(field: "logoUrl" | "imageUrl", file: File) {
+    setUploadingAsset(field);
+    setAssetError(null);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("campaignId", campaignId);
+      body.append("placementId", placement.id);
+      body.append("field", field);
+
+      const res = await fetch("/api/upload-placement-asset", {
+        method: "POST",
+        body,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to upload asset");
+      }
+
+      setForm((prev) => ({ ...prev, [field]: data.url }));
+      router.refresh();
+    } catch (err: unknown) {
+      setAssetError(
+        err instanceof Error ? err.message : "Failed to upload asset"
+      );
+    } finally {
+      setUploadingAsset(null);
     }
   }
 
@@ -292,7 +434,9 @@ export function AdminPlacementDetail({
                     const nextType = e.target.value as PlacementType;
                     const nextPublication = PODCAST_PLACEMENT_TYPES.includes(nextType)
                       ? PODCAST_PUBLICATION
-                      : form.publication;
+                      : form.publication === PODCAST_PUBLICATION
+                        ? "The Peak"
+                        : form.publication;
                     const nextStatuses = getPlacementStatusesFor(
                       nextType,
                       nextPublication
@@ -301,6 +445,7 @@ export function AdminPlacementDetail({
                       ...form,
                       type: nextType,
                       publication: nextPublication,
+                      scheduledDate: "",
                       status: nextStatuses.includes(form.status)
                         ? form.status
                         : nextStatuses[0],
@@ -336,6 +481,7 @@ export function AdminPlacementDetail({
                       ...form,
                       type: nextType,
                       publication: nextPublication,
+                      scheduledDate: "",
                       status: nextStatuses.includes(form.status)
                         ? form.status
                         : nextStatuses[0],
@@ -356,14 +502,29 @@ export function AdminPlacementDetail({
                     ? "Scheduled Start"
                     : "Scheduled Date"}
                 </label>
-                <input
-                  type="date"
+                <select
                   value={form.scheduledDate}
                   onChange={(e) =>
                     setForm({ ...form, scheduledDate: e.target.value })
                   }
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                />
+                  disabled={capacityLoading}
+                >
+                  <option value="">No date</option>
+                  {getAvailableDateOptions().length === 0 && (
+                    <option value="" disabled>
+                      No dates in next 12 months
+                    </option>
+                  )}
+                  {getAvailableDateOptions().map((date) => (
+                    <option key={date} value={date}>
+                      {formatDateLabel(date)}
+                    </option>
+                  ))}
+                </select>
+                {capacityError && (
+                  <p className="mt-1 text-xs text-red-600">{capacityError}</p>
+                )}
               </div>
               {form.publication === PODCAST_PUBLICATION && (
                 <div>
@@ -417,6 +578,23 @@ export function AdminPlacementDetail({
                     />
                     Interview scheduled
                   </label>
+                </div>
+              )}
+              {isPodcastRollType(form.type) && (
+                <div>
+                  <label className="block text-xs text-gray-500">
+                    Committed Impressions
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={form.committedImpressions}
+                    onChange={(e) =>
+                      setForm({ ...form, committedImpressions: e.target.value })
+                    }
+                    className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  />
                 </div>
               )}
               <div>
@@ -506,6 +684,9 @@ export function AdminPlacementDetail({
                 />
               </div>
             </div>
+            {saveError && (
+              <p className="mt-4 text-sm text-red-600">{saveError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={handleCancel}
@@ -572,6 +753,16 @@ export function AdminPlacementDetail({
                 </p>
               </div>
             )}
+            {isPodcastRollType(placement.type) && (
+              <div>
+                <p className="text-xs text-gray-500">Committed Impressions</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {placement.committedImpressions != null
+                    ? placement.committedImpressions.toLocaleString()
+                    : "—"}
+                </p>
+              </div>
+            )}
             {placement.linkToPlacement && (
               <div className="col-span-2 sm:col-span-3">
                 <p className="text-xs text-gray-500">Link</p>
@@ -621,6 +812,39 @@ export function AdminPlacementDetail({
           </div>
         )}
       </div>
+
+      {placement.type === "Primary" && (
+        <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
+          <h3 className="text-sm font-semibold text-gray-900">
+            Primary Placement Assets
+          </h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Upload the placement logo and story image. Files are attached to
+            this placement and can be downloaded anytime.
+          </p>
+
+          {assetError && (
+            <p className="mt-3 text-sm text-red-600">{assetError}</p>
+          )}
+
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <AssetManagerCard
+              label="Logo"
+              field="logoUrl"
+              url={placement.logoUrl}
+              uploading={uploadingAsset === "logoUrl"}
+              onUpload={handleAssetUpload}
+            />
+            <AssetManagerCard
+              label="Story Image"
+              field="imageUrl"
+              url={placement.imageUrl}
+              uploading={uploadingAsset === "imageUrl"}
+              onUpload={handleAssetUpload}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Placement link section */}
       <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
@@ -714,16 +938,51 @@ export function AdminPlacementDetail({
             </div>
 
             <div>
-              <p className="text-xs text-gray-500">Campaign Messaging</p>
+              <p className="text-xs text-gray-500">Campaign Objective</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
-                {onboardingAnswers?.campaignMessaging || "—"}
+                {onboardingAnswers?.campaignObjective || "—"}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-gray-500">Desired Reader Action</p>
+              <p className="text-xs text-gray-500">Key Message</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
-                {onboardingAnswers?.campaignDesiredAction || "—"}
+                {onboardingAnswers?.keyMessage || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Talking Points</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.talkingPoints || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Call to Action</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.callToAction || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Target Audience</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.targetAudience || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Tone / Brand Guidelines</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.toneGuidelines || "—"}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500">Invoicing Instructions</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-gray-900">
+                {onboardingAnswers?.specialInvoicingInstructions || "—"}
               </p>
             </div>
 
@@ -770,16 +1029,29 @@ export function AdminPlacementDetail({
 
       {/* Copy section */}
       <div className="rounded-lg border border-gray-200 bg-white px-6 py-5">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-gray-900">
             Copy (v{placement.copyVersion})
           </h3>
-          <button
-            onClick={() => setCopyExpanded(!copyExpanded)}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-          >
-            {copyExpanded ? "Hide Copy" : "Edit Copy"}
-          </button>
+          <div className="flex items-center gap-2">
+            {isAiCopyGeneratableType(placement.type) && (
+              <GenerateCopyButton
+                campaignId={campaignId}
+                placementId={placement.id}
+                buttonLabel={
+                  placement.copyVersion > 0
+                    ? "Re-Generate Copy"
+                    : "Generate Copy"
+                }
+              />
+            )}
+            <button
+              onClick={() => setCopyExpanded(!copyExpanded)}
+              className="rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {copyExpanded ? "Hide Copy" : "Edit Copy"}
+            </button>
+          </div>
         </div>
 
         {copyExpanded && (
@@ -851,16 +1123,19 @@ export function AdminPlacementDetail({
 }
 
 function AssetPreviewCard({ label, url }: { label: string; url: string }) {
+  const viewUrl = getBlobViewUrl(url);
+  const downloadUrl = getBlobDownloadUrl(url);
+
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
       <p className="text-xs font-medium text-gray-600">{label}</p>
       <div
         className="mt-2 h-28 w-full rounded border border-gray-200 bg-white bg-contain bg-center bg-no-repeat"
-        style={{ backgroundImage: `url("${url}")` }}
+        style={{ backgroundImage: `url("${viewUrl}")` }}
       />
       <div className="mt-2 flex items-center gap-3">
         <a
-          href={url}
+          href={viewUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs font-medium text-blue-600 hover:text-blue-700"
@@ -868,7 +1143,7 @@ function AssetPreviewCard({ label, url }: { label: string; url: string }) {
           View
         </a>
         <a
-          href={url}
+          href={downloadUrl}
           download
           target="_blank"
           rel="noopener noreferrer"
@@ -878,6 +1153,83 @@ function AssetPreviewCard({ label, url }: { label: string; url: string }) {
         </a>
       </div>
       <p className="mt-1 truncate text-xs text-gray-500">{url}</p>
+    </div>
+  );
+}
+
+function AssetManagerCard({
+  label,
+  field,
+  url,
+  uploading,
+  onUpload,
+}: {
+  label: string;
+  field: "logoUrl" | "imageUrl";
+  url?: string;
+  uploading: boolean;
+  onUpload: (field: "logoUrl" | "imageUrl", file: File) => Promise<void>;
+}) {
+  const viewUrl = url ? getBlobViewUrl(url) : "";
+  const downloadUrl = url ? getBlobDownloadUrl(url) : "";
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <p className="text-xs font-medium text-gray-600">{label}</p>
+
+      {url ? (
+        <div
+          className="mt-2 h-28 w-full rounded border border-gray-200 bg-white bg-contain bg-center bg-no-repeat"
+          style={{ backgroundImage: `url("${viewUrl}")` }}
+        />
+      ) : (
+        <div className="mt-2 flex h-28 items-center justify-center rounded border border-dashed border-gray-300 bg-white text-xs text-gray-400">
+          No file uploaded
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100">
+          {uploading ? "Uploading..." : `Upload ${label}`}
+          <input
+            type="file"
+            accept="image/*"
+            disabled={uploading}
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                onUpload(field, file);
+              }
+              e.currentTarget.value = "";
+            }}
+          />
+        </label>
+
+        {url && (
+          <>
+            <a
+              href={viewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+            >
+              View
+            </a>
+            <a
+              href={downloadUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Download
+            </a>
+          </>
+        )}
+      </div>
+
+      <p className="mt-2 truncate text-xs text-gray-500">{url || "—"}</p>
     </div>
   );
 }

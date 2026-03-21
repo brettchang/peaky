@@ -45,6 +45,34 @@ interface BillingDetailsProps {
 
 type CadenceSelection = InvoiceCadenceType | "";
 
+function BooleanAnswer({ value }: { value?: boolean }) {
+  if (value === undefined) return <span className="text-sm font-medium text-gray-400">-</span>;
+  return (
+    <span className="text-sm font-medium text-gray-900">{value ? "Yes" : "No"}</span>
+  );
+}
+
+function BillingValue({
+  label,
+  value,
+  preserveWhitespace = false,
+}: {
+  label: string;
+  value?: string;
+  preserveWhitespace?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p
+        className={`text-sm font-medium text-gray-900 ${preserveWhitespace ? "whitespace-pre-wrap" : ""}`}
+      >
+        {value || "-"}
+      </p>
+    </div>
+  );
+}
+
 export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -59,6 +87,12 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
   );
   const [billingContactEmail, setBillingContactEmail] = useState(
     billing.billingContactEmail || ""
+  );
+  const [ioSigningContactName, setIoSigningContactName] = useState(
+    billing.ioSigningContactName || ""
+  );
+  const [ioSigningContactEmail, setIoSigningContactEmail] = useState(
+    billing.ioSigningContactEmail || ""
   );
   const [billingAddress, setBillingAddress] = useState(
     billing.billingAddress || ""
@@ -136,6 +170,8 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
           companyName,
           billingContactName,
           billingContactEmail,
+          ioSigningContactName,
+          ioSigningContactEmail,
           billingAddress,
           invoiceCadence: buildCadence(),
           specialInstructions,
@@ -160,6 +196,8 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
     setCompanyName(billing.companyName || billing.poNumber || "");
     setBillingContactName(billing.billingContactName || "");
     setBillingContactEmail(billing.billingContactEmail || "");
+    setIoSigningContactName(billing.ioSigningContactName || "");
+    setIoSigningContactEmail(billing.ioSigningContactEmail || "");
     setBillingAddress(billing.billingAddress || "");
     setSpecialInstructions(billing.specialInstructions || "");
     setCadenceType(billing.invoiceCadence?.type || "");
@@ -215,6 +253,23 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
               type="email"
               value={billingContactEmail}
               onChange={(e) => setBillingContactEmail(e.target.value)}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500">IO Signing Contact</label>
+            <input
+              value={ioSigningContactName}
+              onChange={(e) => setIoSigningContactName(e.target.value)}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500">IO Signing Email</label>
+            <input
+              type="email"
+              value={ioSigningContactEmail}
+              onChange={(e) => setIoSigningContactEmail(e.target.value)}
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
           </div>
@@ -338,49 +393,103 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
-        {(billing.companyName || billing.poNumber) && (
-          <div>
-            <p className="text-xs text-gray-500">Company Name</p>
-            <p className="text-sm font-medium text-gray-900">
-              {billing.companyName || billing.poNumber}
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <p className="text-xs text-gray-500">Submitted</p>
+          <p className="text-sm font-medium text-gray-900">
+            {billing.complete ? "Yes" : "No"}
+          </p>
+          {billing.completedAt && (
+            <p className="text-xs text-gray-500">
+              {new Date(billing.completedAt).toLocaleString("en-US", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
             </p>
-          </div>
-        )}
-        {billing.billingContactName && (
-          <div>
-            <p className="text-xs text-gray-500">Billing Contact</p>
-            <p className="text-sm font-medium text-gray-900">{billing.billingContactName}</p>
-          </div>
-        )}
-        {billing.billingContactEmail && (
-          <div>
-            <p className="text-xs text-gray-500">Billing Email</p>
-            <p className="text-sm font-medium text-gray-900">{billing.billingContactEmail}</p>
-          </div>
-        )}
-        {billing.billingAddress && (
-          <div>
-            <p className="text-xs text-gray-500">Billing Address</p>
-            <p className="text-sm font-medium text-gray-900">{billing.billingAddress}</p>
-          </div>
-        )}
-        {billing.invoiceCadence && (
-          <div>
-            <p className="text-xs text-gray-500">Invoice Cadence</p>
+          )}
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Representing a Client</p>
+          <BooleanAnswer value={billing.representingClient} />
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Peak Producing Copy</p>
+          <BooleanAnswer value={billing.wantsPeakCopy} />
+        </div>
+
+        <BillingValue
+          label="Primary Contact"
+          value={billing.primaryContactName}
+        />
+        <BillingValue
+          label="Primary Contact Email"
+          value={billing.primaryContactEmail}
+        />
+        <BillingValue
+          label="Company Name"
+          value={billing.companyName || billing.poNumber}
+        />
+        <BillingValue
+          label="Billing Contact"
+          value={billing.billingContactName}
+        />
+        <BillingValue
+          label="Billing Email"
+          value={billing.billingContactEmail}
+        />
+        <BillingValue
+          label="IO Signing Contact"
+          value={billing.ioSigningContactName}
+        />
+        <BillingValue
+          label="IO Signing Email"
+          value={billing.ioSigningContactEmail}
+        />
+        <BillingValue
+          label="Billing Address"
+          value={billing.billingAddress}
+          preserveWhitespace
+        />
+        <div>
+          <p className="text-xs text-gray-500">Invoice Cadence</p>
+          {billing.invoiceCadence ? (
             <InvoiceCadenceDetails cadence={billing.invoiceCadence} />
+          ) : (
+            <p className="text-sm font-medium text-gray-400">-</p>
+          )}
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <p className="text-xs text-gray-500">Form Link</p>
+          <a
+            href={billing.formLink}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-medium text-blue-600 hover:text-blue-700 break-all"
+          >
+            {billing.formLink}
+          </a>
+        </div>
+        {billing.uploadedDocUrl && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <p className="text-xs text-gray-500">Uploaded Document</p>
+            <a
+              href={billing.uploadedDocUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 break-all"
+            >
+              {billing.uploadedDocUrl}
+            </a>
           </div>
         )}
       </div>
 
-      {billing.specialInstructions && (
-        <div className="mt-4 border-t border-gray-100 pt-4">
-          <p className="text-xs text-gray-500">Billing / Cadence Notes</p>
-          <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
-            {billing.specialInstructions}
-          </p>
-        </div>
-      )}
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <p className="text-xs text-gray-500">Billing / Cadence Notes</p>
+        <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
+          {billing.specialInstructions || "-"}
+        </p>
+      </div>
     </div>
   );
 }

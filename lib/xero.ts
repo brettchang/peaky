@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "./db/index";
 import * as schema from "./db/schema";
+import { getXeroConfig } from "./env";
 import type { XeroInvoice, XeroInvoiceStatus } from "./xero-types";
 import { customAlphabet } from "nanoid";
 
@@ -24,10 +25,16 @@ export async function getXeroConnection(): Promise<XeroConnection | null> {
   // Auto-refresh if token expires within 5 minutes
   const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
   if (row.expiresAt <= fiveMinutesFromNow) {
-    try {
-      const clientId = process.env.XERO_CLIENT_ID!;
-      const clientSecret = process.env.XERO_CLIENT_SECRET!;
+    let clientId: string;
+    let clientSecret: string;
 
+    try {
+      ({ clientId, clientSecret } = getXeroConfig());
+    } catch {
+      return null;
+    }
+
+    try {
       const refreshResponse = await fetch(
         "https://identity.xero.com/connect/token",
         {

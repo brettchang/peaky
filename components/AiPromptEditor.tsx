@@ -1,21 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { AI_COPY_PROMPT_KEY, DEFAULT_AI_COPY_PROMPT, AI_COPY_TEMPLATE_VARIABLES } from "@/lib/ai-constants";
 
 export function AiPromptEditor({
+  title,
+  promptKey,
+  defaultPrompt,
+  templateVariables,
   currentPrompt,
+  summary,
   className = "",
 }: {
+  title: string;
+  promptKey: string;
+  defaultPrompt: string;
+  templateVariables: { key: string; description: string }[];
   currentPrompt: string | null;
+  summary?: string;
   className?: string;
 }) {
-  const [prompt, setPrompt] = useState(currentPrompt || DEFAULT_AI_COPY_PROMPT);
+  const [prompt, setPrompt] = useState(currentPrompt || defaultPrompt);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
-  const isDefault = prompt === DEFAULT_AI_COPY_PROMPT;
+  const isDefault = prompt === defaultPrompt;
 
   async function handleSave() {
     setSaving(true);
@@ -24,7 +33,7 @@ export function AiPromptEditor({
       const res = await fetch("/api/update-setting", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: AI_COPY_PROMPT_KEY, value: prompt }),
+        body: JSON.stringify({ key: promptKey, value: prompt }),
       });
       if (!res.ok) throw new Error("Failed to save");
       setMessage("Saved!");
@@ -37,7 +46,7 @@ export function AiPromptEditor({
   }
 
   function handleReset() {
-    setPrompt(DEFAULT_AI_COPY_PROMPT);
+    setPrompt(defaultPrompt);
   }
 
   return (
@@ -46,12 +55,8 @@ export function AiPromptEditor({
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between text-left"
       >
-        <h3 className="text-sm font-semibold text-gray-700">
-          AI Copy Prompt
-        </h3>
-        <span className="text-xs text-gray-400">
-          {expanded ? "Collapse" : "Edit"}
-        </span>
+        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
+        <span className="text-xs text-gray-400">{expanded ? "Collapse" : "Edit"}</span>
       </button>
 
       {!expanded && (
@@ -63,11 +68,11 @@ export function AiPromptEditor({
       {expanded && (
         <div className="mt-3 space-y-3">
           <p className="text-xs text-gray-500">
-            This prompt is sent as the system instruction when generating ad copy.
-            Use template variables to reference onboarding form data:
+            {summary || "This prompt is sent as the system instruction when generating ad copy."} Use
+            template variables to reference onboarding form data:
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {AI_COPY_TEMPLATE_VARIABLES.map((v) => (
+            {templateVariables.map((v) => (
               <span
                 key={v.key}
                 title={v.description}
@@ -78,7 +83,7 @@ export function AiPromptEditor({
             ))}
           </div>
           <p className="text-xs text-gray-400">
-            Per-placement briefs and type/length are passed separately to each generation.
+            Placement type, length, and placement-specific requests are passed separately to each generation.
           </p>
           <textarea
             value={prompt}
@@ -102,9 +107,7 @@ export function AiPromptEditor({
                 Reset to Default
               </button>
             )}
-            {message && (
-              <span className="text-sm text-green-600">{message}</span>
-            )}
+            {message && <span className="text-sm text-green-600">{message}</span>}
           </div>
         </div>
       )}

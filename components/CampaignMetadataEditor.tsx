@@ -2,11 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CampaignStatus, CampaignContact } from "@/lib/types";
+import { CAMPAIGN_MANAGERS } from "@/lib/types";
+import type {
+  CampaignStatus,
+  CampaignContact,
+  CampaignCurrency,
+  CampaignCategory,
+  CampaignManager,
+} from "@/lib/types";
 
 const CAMPAIGN_STATUSES: CampaignStatus[] = [
-  "Waiting on Onboarding",
-  "Onboarding Form Complete",
+  "Onboarding to be sent",
+  "Waiting for onboarding",
   "Active",
   "Placements Completed",
   "Wrapped",
@@ -17,15 +24,21 @@ interface CampaignMetadataEditorProps {
   campaign: {
     name: string;
     clientName?: string;
+    category: CampaignCategory;
     status: CampaignStatus;
+    longTermClient?: boolean;
+    complementaryCampaign?: boolean;
     salesPerson?: string;
-    campaignManager?: string;
+    campaignManager?: CampaignManager;
+    currency: CampaignCurrency;
+    taxEligible: boolean;
     legacyOnboardingDocUrl?: string;
     contactName?: string;
     contactEmail?: string;
     contacts?: CampaignContact[];
     notes?: string;
     placementCount: number;
+    specialInvoicingInstructions?: string;
     invoiceCadenceLabel?: string;
   };
 }
@@ -43,9 +56,14 @@ export function CampaignMetadataEditor({
   const [form, setForm] = useState({
     name: campaign.name,
     clientName: campaign.clientName ?? "",
+    category: campaign.category,
     status: campaign.status,
+    longTermClient: campaign.longTermClient ?? false,
+    complementaryCampaign: campaign.complementaryCampaign ?? false,
     salesPerson: campaign.salesPerson ?? "",
-    campaignManager: campaign.campaignManager ?? "",
+    campaignManager: campaign.campaignManager ?? "Brett",
+    currency: campaign.currency,
+    taxEligible: campaign.taxEligible,
     legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl ?? "",
     contacts:
       campaign.contacts && campaign.contacts.length > 0
@@ -54,15 +72,21 @@ export function CampaignMetadataEditor({
         ? [{ name: campaign.contactName, email: campaign.contactEmail }]
         : [{ name: "", email: "" }],
     notes: campaign.notes ?? "",
+    specialInvoicingInstructions: campaign.specialInvoicingInstructions ?? "",
   });
 
   function handleCancel() {
     setForm({
       name: campaign.name,
       clientName: campaign.clientName ?? "",
+      category: campaign.category,
       status: campaign.status,
+      longTermClient: campaign.longTermClient ?? false,
+      complementaryCampaign: campaign.complementaryCampaign ?? false,
       salesPerson: campaign.salesPerson ?? "",
-      campaignManager: campaign.campaignManager ?? "",
+      campaignManager: campaign.campaignManager ?? "Brett",
+      currency: campaign.currency,
+      taxEligible: campaign.taxEligible,
       legacyOnboardingDocUrl: campaign.legacyOnboardingDocUrl ?? "",
       contacts:
         campaign.contacts && campaign.contacts.length > 0
@@ -71,6 +95,7 @@ export function CampaignMetadataEditor({
           ? [{ name: campaign.contactName, email: campaign.contactEmail }]
           : [{ name: "", email: "" }],
       notes: campaign.notes ?? "",
+      specialInvoicingInstructions: campaign.specialInvoicingInstructions ?? "",
     });
     setError(null);
     setEditing(false);
@@ -87,14 +112,20 @@ export function CampaignMetadataEditor({
           campaignId,
           name: form.name,
           clientName: form.clientName,
+          category: form.category,
           status: form.status,
+          longTermClient: form.longTermClient,
+          complementaryCampaign: form.complementaryCampaign,
           salesPerson: form.salesPerson || null,
-          campaignManager: form.campaignManager || null,
+          campaignManager: form.campaignManager,
+          currency: form.currency,
+          taxEligible: form.taxEligible,
           legacyOnboardingDocUrl: form.legacyOnboardingDocUrl || null,
           contacts: form.contacts
             .map((c) => ({ name: c.name.trim(), email: c.email.trim() }))
             .filter((c) => c.name && c.email),
           notes: form.notes || null,
+          specialInvoicingInstructions: form.specialInvoicingInstructions || null,
         }),
       });
       if (res.ok) {
@@ -160,9 +191,28 @@ export function CampaignMetadataEditor({
             />
           </div>
           <div>
+            <label className="block text-xs text-gray-500">Category</label>
+            <select
+              value={form.category}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  category: e.target.value as CampaignCategory,
+                  status:
+                    e.target.value === "Evergreen" ? "Active" : form.status,
+                })
+              }
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="Standard">Standard</option>
+              <option value="Evergreen">Evergreen</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-xs text-gray-500">Status</label>
             <select
               value={form.status}
+              disabled={form.category === "Evergreen"}
               onChange={(e) =>
                 setForm({ ...form, status: e.target.value as CampaignStatus })
               }
@@ -186,18 +236,90 @@ export function CampaignMetadataEditor({
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
           </div>
+          <div className="flex items-end">
+            <label className="mb-1 inline-flex items-center gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={form.longTermClient}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    longTermClient: e.target.checked,
+                  })
+                }
+                className="h-4 w-4 rounded border-gray-300 text-gray-900"
+              />
+              Long-term client
+            </label>
+          </div>
+          <div className="flex items-end">
+            <label className="mb-1 inline-flex items-center gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={form.complementaryCampaign}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    complementaryCampaign: e.target.checked,
+                  })
+                }
+                className="h-4 w-4 rounded border-gray-300 text-gray-900"
+              />
+              Complementary campaign (exclude from invoicing)
+            </label>
+          </div>
           <div>
             <label className="block text-xs text-gray-500">
               Campaign Manager
             </label>
-            <input
-              type="text"
+            <select
               value={form.campaignManager}
               onChange={(e) =>
-                setForm({ ...form, campaignManager: e.target.value })
+                setForm({
+                  ...form,
+                  campaignManager: e.target.value as CampaignManager,
+                })
               }
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-            />
+            >
+              {CAMPAIGN_MANAGERS.map((manager) => (
+                <option key={manager} value={manager}>
+                  {manager}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500">Currency</label>
+            <select
+              value={form.currency}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  currency: e.target.value as CampaignCurrency,
+                })
+              }
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="CAD">CAD</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <label className="mb-1 inline-flex items-center gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={!form.taxEligible}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    taxEligible: !e.target.checked,
+                  })
+                }
+                className="h-4 w-4 rounded border-gray-300 text-gray-900"
+              />
+              Tax Exempt (No HST)
+            </label>
           </div>
           <div className="col-span-2 sm:col-span-3">
             <label className="block text-xs text-gray-500">
@@ -257,6 +379,22 @@ export function CampaignMetadataEditor({
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={3}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            />
+          </div>
+          <div className="col-span-2 sm:col-span-3">
+            <label className="block text-xs text-gray-500">
+              Invoicing Instructions
+            </label>
+            <textarea
+              value={form.specialInvoicingInstructions}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  specialInvoicingInstructions: e.target.value,
+                })
+              }
               rows={3}
               className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
             />
@@ -361,6 +499,30 @@ export function CampaignMetadataEditor({
             </p>
           </div>
         )}
+        <div>
+          <p className="text-xs text-gray-500">Currency</p>
+          <p className="text-sm font-medium text-gray-900">
+            {campaign.currency}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Tax</p>
+          <p className="text-sm font-medium text-gray-900">
+            {campaign.taxEligible ? "Taxable (13% HST)" : "Tax Exempt"}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Long-term Client</p>
+          <p className="text-sm font-medium text-gray-900">
+            {campaign.longTermClient ? "Yes" : "No"}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Complementary Campaign</p>
+          <p className="text-sm font-medium text-gray-900">
+            {campaign.complementaryCampaign ? "Yes" : "No"}
+          </p>
+        </div>
         {campaign.legacyOnboardingDocUrl && (
           <div className="col-span-2 sm:col-span-3">
             <p className="text-xs text-gray-500">Legacy Onboarding Google Doc</p>
@@ -405,6 +567,14 @@ export function CampaignMetadataEditor({
             <p className="text-xs text-gray-500">Notes</p>
             <p className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap">
               {campaign.notes}
+            </p>
+          </div>
+        )}
+        {campaign.specialInvoicingInstructions && (
+          <div className="col-span-2 sm:col-span-3">
+            <p className="text-xs text-gray-500">Invoicing Instructions</p>
+            <p className="mt-0.5 text-sm text-gray-900 whitespace-pre-wrap">
+              {campaign.specialInvoicingInstructions}
             </p>
           </div>
         )}

@@ -20,6 +20,23 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Dashboard Auth
+
+Admin dashboard access uses Google OAuth and an allowlist of Peak team accounts.
+
+Required environment:
+
+- `DASHBOARD_SESSION_SECRET`: HMAC secret used to sign dashboard sessions.
+- `GOOGLE_CLIENT_ID`: Google OAuth client ID for the portal app.
+- `GOOGLE_CLIENT_SECRET`: Google OAuth client secret for the portal app.
+- `DASHBOARD_ALLOWED_EMAILS`: comma-separated admin emails allowed into `/dashboard`.
+
+Optional environment:
+
+- `GOOGLE_HOSTED_DOMAIN`: Google Workspace domain to hint and enforce during sign-in.
+
+Client-facing `/portal/...` routes remain public. The dashboard and protected admin APIs require sign-in.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
@@ -45,11 +62,37 @@ This repo includes an MCP server at `mcp-server/index.ts` with campaign tools ov
 
 See `mcp-server/README.md` for deployment setup on Railway.
 
-## Email Agent (Railway Worker)
+## Email Inbox Agent
 
-The always-on email agent lives in `email-agent/` and should be deployed as a separate Railway service so it does not affect the portal deployment.
+The email agent lives in the portal app under `lib/email`.
 
-See `email-agent/README.md` for setup and rollout steps.
+Current entry points:
+
+- `app/api/email/missive/webhook`: Missive-native v1 flow. A Missive webhook triggers the agent, the backend reconstructs the conversation, generates a reply draft, creates the draft in Missive, and stores the run locally for audit/debugging.
+- `app/api/email/*`: the older Nylas-backed inbox routes still exist in the repo.
+
+There is no separate standalone email-agent worker in this repo anymore.
+
+### Missive v1 setup
+
+Required environment:
+
+- `MISSIVE_API_TOKEN`: API token used to read conversations and create drafts/posts.
+- `MISSIVE_WEBHOOK_SECRET`: webhook signing secret used to verify `X-Hook-Signature`.
+
+Optional environment:
+
+- `MISSIVE_AI_TRIGGER_PREFIX`: comment text that triggers generation for `new_comment` rules. Default: `@ai draft`.
+- `MISSIVE_FROM_EMAIL`: sender alias for created drafts. Default: `adops@thepeakmediaco.com`.
+- `MISSIVE_ADD_DRAFT_TO_INBOX`: set to `false` to avoid adding generated drafts to inboxes.
+- `MISSIVE_API_BASE_URL`: override the Missive API base URL if needed.
+
+Recommended Missive rule setup:
+
+1. Create a webhook rule that points to `POST /api/email/missive/webhook`.
+2. Start with a `new_comment` rule filtered to comments like `@ai draft`.
+3. Optionally add a narrow `incoming_email` rule later once draft quality is stable.
+
 # peaky
 
 ## Campaign Email Insights Cron

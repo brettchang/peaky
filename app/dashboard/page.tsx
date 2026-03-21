@@ -1,17 +1,10 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { getAllCampaignsWithClients, getSetting } from "@/lib/db";
+import { getAllCampaignsWithClients } from "@/lib/db";
 import { DashboardViewToggle } from "@/components/DashboardViewToggle";
 import { CreateCampaignForm } from "@/components/CreateCampaignForm";
-import { AiPromptEditor } from "@/components/AiPromptEditor";
-import { DashboardTaskList } from "@/components/DashboardTaskList";
-import { AI_COPY_PROMPT_KEY } from "@/lib/ai-constants";
-import {
-  DISMISSED_TASKS_SETTING_KEY,
-  parseDismissedTaskIds,
-} from "@/lib/dashboard-task-dismissals";
-import { buildDashboardTasks } from "@/lib/dashboard-tasks";
 import { isClientReviewStatus } from "@/lib/types";
+import { getPortalBaseUrl } from "@/lib/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default async function DashboardPage() {
-  const [data, currentPrompt, dismissedRaw] = await Promise.all([
-    getAllCampaignsWithClients(),
-    getSetting(AI_COPY_PROMPT_KEY),
-    getSetting(DISMISSED_TASKS_SETTING_KEY),
-  ]);
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-  const dismissedTaskIds = parseDismissedTaskIds(dismissedRaw);
-  const tasks = buildDashboardTasks(data, dismissedTaskIds);
+  const data = await getAllCampaignsWithClients();
+  const portalBaseUrl = getPortalBaseUrl();
   const placementCount = data.reduce(
     (sum, row) => sum + row.campaign.placements.length,
     0
@@ -45,22 +32,9 @@ export default async function DashboardPage() {
       ).length,
     0
   );
-  const urgentTaskCount = tasks.filter((task) => task.urgent).length;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
-      <div className="mb-4 flex items-center gap-2">
-        <span className="rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white">
-          Overview
-        </span>
-        <Link
-          href="/dashboard/tasks"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          Tasks
-        </Link>
-      </div>
-
+    <div className="mx-auto w-full max-w-[1600px] px-4 py-8">
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -88,24 +62,19 @@ export default async function DashboardPage() {
             value={`${scheduledCount}/${placementCount || 0}`}
           />
           <SummaryBox
-            label="Urgent Tasks"
-            value={urgentTaskCount}
-            tone={urgentTaskCount > 0 ? "alert" : "default"}
-            helper={`${reviewCount} awaiting Peak-team-approved send step`}
+            label="Needs Review"
+            value={reviewCount}
+            tone={reviewCount > 0 ? "alert" : "default"}
+            helper="Placements awaiting Peak-team-approved send step"
           />
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-12">
-        <div className="space-y-4 xl:col-span-8">
+      <div className="mt-4 grid gap-4 2xl:grid-cols-12">
+        <div className="space-y-4 2xl:col-span-12">
           <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <DashboardViewToggle data={data} baseUrl={baseUrl} />
+            <DashboardViewToggle data={data} baseUrl={portalBaseUrl} />
           </div>
-        </div>
-
-        <div className="space-y-4 xl:col-span-4">
-          <DashboardTaskList tasks={tasks} />
-          <AiPromptEditor currentPrompt={currentPrompt} />
         </div>
       </div>
     </div>
