@@ -1113,3 +1113,49 @@ export async function getThreadsByIds(threadIds: string[]): Promise<EmailThreadR
   const mapped = await Promise.all(rows.map((row) => getThreadById(row.id)));
   return mapped.filter(Boolean) as EmailThreadRecord[];
 }
+
+/**
+ * Returns recent email threads that have NO campaign link.
+ * These are threads that need to be associated with a campaign in the portal.
+ */
+export async function getUnlinkedThreads(
+  limit: number = 20,
+  sinceDays: number = 14
+): Promise<
+  Array<{
+    threadId: string;
+    subject: string | null;
+    snippet: string | null;
+    participants: EmailParticipant[] | null;
+    lastMessageAt: string | undefined;
+  }>
+> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - sinceDays);
+
+  // Get all threads, then filter out those with campaign links
+  const allThreads = await db.query.emailThreads.findMany({
+    orderBy: [desc(schema.emailThreads.lastMessageAt)],
+    with: {
+      campaignLinks: true,
+    },
+  });
+
+  return allThreads
+    .filter((t) => {
+      // No campaign links
+      if (t.campaignLinks && t.campaignLinks.length > 0) return false;
+      // Within date window
+      const lastMsg = t.lastMessageAt ?? t.updatedAt;
+      if (!lastMsg) return false;
+      return new Date(lastMsg) >= cutoff;
+    })
+    .slice(0, limit)
+    .map((t) => ({
+      threadId: t.id,
+      subject: t.subject,
+      snippet: t.snippet,
+      participants: t.participants as EmailParticipant[] | null,
+      lastMessageAt: toIsoString(t.lastMessageAt),
+    }));
+}

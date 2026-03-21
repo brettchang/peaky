@@ -11,10 +11,12 @@ import {
   getSetting,
   updatePlacementStatus,
   upsertSetting,
+  getCampaignIdsWithInvoices,
 } from "../lib/db";
 import {
   listThreads,
   getThreadById,
+  getUnlinkedThreads,
 } from "../lib/email/db";
 import {
   ensurePrimaryMailbox,
@@ -159,6 +161,7 @@ function getServer(): McpServer {
     },
     async ({ limit, clientName, status }) => {
       const rows = await getAllCampaignsWithClients();
+      const campaignIdsWithInvoices = await getCampaignIdsWithInvoices();
       const filtered = rows
         .filter((row) =>
           clientName
@@ -172,16 +175,34 @@ function getServer(): McpServer {
             new Date(a.campaign.createdAt).getTime()
         )
         .slice(0, limit)
-        .map((row) => ({
-          campaignId: row.campaign.id,
-          campaignName: row.campaign.name,
-          status: row.campaign.status,
-          category: row.campaign.category,
-          clientName: row.clientName,
-          clientPortalId: row.clientPortalId,
-          createdAt: row.campaign.createdAt,
-          placementCount: row.campaign.placements.length,
-        }));
+        .map((row) => {
+          const c = row.campaign;
+          const scheduledPlacements = c.placements.filter(
+            (p) => p.scheduledDate
+          ).length;
+          const latestNote = c.latestCampaignManagerNote;
+          return {
+            campaignId: c.id,
+            campaignName: c.name,
+            status: c.status,
+            category: c.category,
+            clientName: row.clientName,
+            clientPortalId: row.clientPortalId,
+            createdAt: c.createdAt,
+            campaignManager: c.campaignManager ?? null,
+            contactEmail: c.contactEmail ?? null,
+            placementCount: c.placements.length,
+            scheduledPlacementCount: scheduledPlacements,
+            hasLinkedInvoices: campaignIdsWithInvoices.has(c.id),
+            latestNote: latestNote
+              ? {
+                  body: latestNote.body,
+                  authorName: latestNote.authorName,
+                  createdAt: latestNote.createdAt,
+                }
+              : null,
+          };
+        });
 
       return {
         structuredContent: { campaigns: filtered },
@@ -297,6 +318,50 @@ function getServer(): McpServer {
           {
             type: "text",
             text: `Updated placement ${placementId} to "${status}".`,
+          },
+        ],
+      };
+    }
+  );
+
+  // ── Invoice Tools ────────────────────────────────────────────────────
+
+  server.registerTool(
+    "get_campaign_invoices",
+    {
+      title: "Get Campaign Invoice Status",
+      description:
+        "Check which campaigns have linked Xero invoices. Returns a list of all active campaigns with their invoice status. Lightweight — does not call Xero APIs.",
+      inputSchema: {
+        onlyMissing: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, only return campaigns that have NO linked invoices"
+          ),
+      },
+    },
+    async ({ onlyMissing }) => {
+      const rows = await getAllCampaignsWithClients();
+      const campaignIdsWithInvoices = await getCampaignIdsWithInvoices();
+
+      const results = rows
+        .filter((row) => row.campaign.status !== "Wrapped")
+        .map((row) => ({
+          campaignId: row.campaign.id,
+          campaignName: row.campaign.name,
+          clientName: row.clientName,
+          campaignStatus: row.campaign.status,
+          hasLinkedInvoices: campaignIdsWithInvoices.has(row.campaign.id),
+        }))
+        .filter((row) => (onlyMissing ? !row.hasLinkedInvoices : true));
+
+      return {
+        structuredContent: { campaigns: results },
+        content: [
+          {
+            type: "text",
+            text: `${results.length} campaign(s)${onlyMissing ? " without invoices" : ""}.`,
           },
         ],
       };
@@ -594,6 +659,44 @@ function getServer(): McpServer {
           {
             type: "text",
             text: `Draft ${draftId} sent successfully.`,
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "list_unlinked_email_threads",
+    {
+      title: "List Unlinked Email Threads",
+      description:
+        "Find recent email threads that are NOT linked to any campaign. These represent emails that need a campaign created or associated in the portal.",
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .default(20)
+          .describe("Maximum threads to return"),
+        sinceDays: z
+          .number()
+          .int()
+          .min(1)
+          .max(90)
+          .default(14)
+          .describe("Look back this many days"),
+      },
+    },
+    async ({ limit, sinceDays }) => {
+      const threads = await getUnlinkedThreads(limit, sinceDays);
+
+      return {
+        structuredContent: { threads },
+        content: [
+          {
+            type: "text",
+            text: `Found ${threads.length} unlinked thread(s) in the last ${sinceDays} days.`,
           },
         ],
       };

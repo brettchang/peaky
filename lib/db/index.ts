@@ -22,6 +22,7 @@ export {
   getCapacityForDateRange,
   getPlacementsScheduledOn,
   getSetting,
+  getCampaignIdsWithInvoices,
 } from "./queries";
 
 export {

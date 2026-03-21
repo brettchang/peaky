@@ -1708,3 +1708,19 @@ export async function getCapacityForDateRange(
 
   return { startDate, endDate, days };
 }
+
+/**
+ * Returns a set of campaign IDs that have at least one linked invoice.
+ * Lightweight — does NOT call Xero APIs.
+ */
+export async function getCampaignIdsWithInvoices(): Promise<Set<string>> {
+  try {
+    const rows = await db
+      .select({ campaignId: schema.campaignInvoices.campaignId })
+      .from(schema.campaignInvoices);
+    return new Set(rows.map((r) => r.campaignId));
+  } catch {
+    // Gracefully handle missing table during migrations
+    return new Set();
+  }
+}
