@@ -543,11 +543,7 @@ MISSIVE_FROM_EMAIL=                # Sender alias (default: adops@thepeakmediaco
 MISSIVE_ADD_DRAFT_TO_INBOX=        # Set "false" to skip adding drafts to inboxes
 MISSIVE_API_BASE_URL=              # Override Missive API base URL
 
-# Email Agent (Nylas — legacy inbox routes)
-NYLAS_API_KEY=
-NYLAS_CLIENT_ID=
-NYLAS_CALLBACK_URI=
-NYLAS_WEBHOOK_SECRET=
+# Email Agent (legacy Nylas routes removed)
 EMAIL_MAILBOX_ADDRESS=
 
 # Campaign Email Insights (Gmail via Google Workspace CLI)

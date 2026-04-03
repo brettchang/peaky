@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { getNylasConfig } from "./config";
 import { cleanEmailSnippet, htmlToReadableText } from "./content";
 import type {
@@ -71,7 +70,7 @@ async function nylasRequest<T>(
 export function createNylasHostedAuthUrl(state: string): string {
   const { clientId, callbackUri, apiUri, mailboxAddress } = getNylasConfig();
   if (!clientId) {
-    throw new Error("Missing required environment variable: NYLAS_CLIENT_ID");
+    throw new Error("Legacy Nylas integration has been removed. Use the Missive email flow instead.");
   }
   const url = new URL(`${apiUri}/v3/connect/auth`);
   url.searchParams.set("client_id", clientId);
@@ -98,11 +97,9 @@ export async function exchangeNylasCode(code: string): Promise<Record<string, un
 }
 
 export function verifyNylasWebhookSignature(rawBody: string, signature?: string | null): boolean {
-  const secret = getNylasConfig().webhookSecret;
-  if (!secret) return true;
-  if (!signature) return false;
-  const digest = createHmac("sha256", secret).update(rawBody).digest("hex");
-  return digest === signature;
+  void rawBody;
+  void signature;
+  return false;
 }
 
 export async function listNylasThreads(

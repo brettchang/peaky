@@ -444,7 +444,7 @@ function getServer(): McpServer {
     {
       title: "Sync Email Threads",
       description:
-        "Trigger a sync of the adops mailbox with Nylas/Gmail. Pulls new messages and auto-links threads to campaigns.",
+        "Trigger a sync of the adops mailbox. Pulls new messages and auto-links threads to campaigns.",
       inputSchema: {},
     },
     async () => {
@@ -465,7 +465,7 @@ function getServer(): McpServer {
     {
       title: "Create Email Draft",
       description:
-        "Manually create a reply draft for a thread. The draft is saved to the database and mirrored to Gmail via Nylas for human review before sending.",
+        "Manually create a reply draft for a thread. The draft is saved for human review before sending.",
       inputSchema: {
         threadId: z.string().min(1).describe("The thread to reply to"),
         subject: z.string().min(1).describe("Email subject line"),
@@ -582,7 +582,7 @@ function getServer(): McpServer {
     {
       title: "Send Email Draft",
       description:
-        "Send an approved draft via Gmail/Nylas. Draft must be in 'approved' status first.",
+        "Send an approved draft. Draft must be in 'approved' status first.",
       inputSchema: {
         draftId: z.string().min(1).describe("The approved draft ID to send"),
       },

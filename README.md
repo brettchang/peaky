@@ -69,7 +69,7 @@ The email agent lives in the portal app under `lib/email`.
 Current entry points:
 
 - `app/api/email/missive/webhook`: Missive-native v1 flow. A Missive webhook triggers the agent, the backend reconstructs the conversation, generates a reply draft, creates the draft in Missive, and stores the run locally for audit/debugging.
-- `app/api/email/*`: the older Nylas-backed inbox routes still exist in the repo.
+- `app/api/email/*`: older legacy inbox routes remain in the repo, but the active integration is Missive.
 
 There is no separate standalone email-agent worker in this repo anymore.
 
