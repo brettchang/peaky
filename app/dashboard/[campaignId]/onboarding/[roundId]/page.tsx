@@ -48,8 +48,7 @@ export default async function DashboardOnboardingEditPage({ params }: PageProps)
     notFound();
   }
 
-  const billingMeta = extractBillingMeta(campaign.notes);
-  const wantsPeakCopy = billingMeta.wantsPeakCopy ?? true;
+  const wantsPeakCopy = campaign.billingOnboarding?.wantsPeakCopy ?? true;
   const roundPlacements = campaign.placements.filter(
     (placement) => placement.onboardingRoundId === round.id
   );
@@ -94,24 +93,4 @@ export default async function DashboardOnboardingEditPage({ params }: PageProps)
       )}
     </div>
   );
-}
-
-function extractBillingMeta(notes?: string): {
-  wantsPeakCopy?: boolean;
-} {
-  if (!notes) return {};
-  const start = notes.indexOf("<!-- billing-meta:start -->");
-  const end = notes.indexOf("<!-- billing-meta:end -->");
-  if (start === -1 || end === -1 || end < start) return {};
-
-  const raw = notes
-    .slice(start + "<!-- billing-meta:start -->".length, end)
-    .trim();
-  try {
-    return JSON.parse(raw) as {
-      wantsPeakCopy?: boolean;
-    };
-  } catch {
-    return {};
-  }
 }

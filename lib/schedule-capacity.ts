@@ -17,8 +17,12 @@ export function getTodayDateKey(): string {
   return toDateKey(today);
 }
 
+export function isPastDateKey(date: string, todayKey = getTodayDateKey()): boolean {
+  return date < todayKey;
+}
+
 function isDateSelectable(date: string, todayKey: string): boolean {
-  return date >= todayKey;
+  return !isPastDateKey(date, todayKey);
 }
 
 export function getAvailableCapacityDates({

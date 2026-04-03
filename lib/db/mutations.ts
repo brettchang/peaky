@@ -31,6 +31,7 @@ import {
   isPodcastInterviewType,
   isPodcastPublication,
 } from "../types";
+import { getTodayDateKey, isPastDateKey } from "../schedule-capacity";
 import { getCampaignById, getPlacement } from "./queries";
 import { attachPlacementMeta, extractPlacementMeta } from "../placement-meta";
 import { getPortalBaseUrl } from "../urls";
@@ -54,8 +55,15 @@ async function assertPlacementDateAllowed(
   scheduledDate: string,
   type: PlacementType,
   publication: Publication,
-  ignorePlacementId?: string
+  ignorePlacementId?: string,
+  options?: {
+    allowHistoricalDateOverride?: boolean;
+  }
 ): Promise<void> {
+  if (options?.allowHistoricalDateOverride && isPastDateKey(scheduledDate, getTodayDateKey())) {
+    return;
+  }
+
   const dateObj = new Date(`${scheduledDate}T00:00:00`);
   const dayOfWeek = dateObj.getDay();
   if (dayOfWeek === 0 || dayOfWeek === 6) {
@@ -262,7 +270,10 @@ export async function updatePlacementCopy(
 export async function updatePlacementScheduledDate(
   campaignId: string,
   placementId: string,
-  scheduledDate: string | null
+  scheduledDate: string | null,
+  options?: {
+    historicalDateOverride?: boolean;
+  }
 ): Promise<boolean> {
   if (scheduledDate) {
     const placement = await getPlacement(campaignId, placementId);
@@ -271,7 +282,8 @@ export async function updatePlacementScheduledDate(
       scheduledDate,
       placement.type,
       placement.publication,
-      placementId
+      placementId,
+      { allowHistoricalDateOverride: options?.historicalDateOverride === true }
     );
   }
 
@@ -671,6 +683,8 @@ export async function updateBillingOnboardingByAdmin(
   campaignId: string,
   data: {
     poNumber?: string;
+    representingClient?: boolean;
+    wantsPeakCopy?: boolean;
     billingAddress?: string;
     billingContactName?: string;
     billingContactEmail?: string;
@@ -680,6 +694,11 @@ export async function updateBillingOnboardingByAdmin(
     specialInstructions?: string;
   }
 ): Promise<boolean> {
+  const campaign = await db.query.campaigns.findFirst({
+    where: eq(schema.campaigns.id, campaignId),
+  });
+  if (!campaign) return false;
+
   const billing = await db.query.billingOnboarding.findFirst({
     where: eq(schema.billingOnboarding.campaignId, campaignId),
   });
@@ -689,6 +708,27 @@ export async function updateBillingOnboardingByAdmin(
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
   };
+
+  const extracted = extractBillingPortalMeta(campaign.notes);
+  const notesWithMeta = attachBillingPortalMeta(extracted.cleanNotes, {
+    ...extracted.meta,
+    representingClient: data.representingClient,
+    wantsPeakCopy: data.wantsPeakCopy,
+  });
+
+  await db
+    .update(schema.campaigns)
+    .set({
+      notes: notesWithMeta || null,
+    })
+    .where(eq(schema.campaigns.id, campaignId));
+
+  if (data.wantsPeakCopy !== undefined) {
+    await db
+      .update(schema.placements)
+      .set({ copyProducer: data.wantsPeakCopy ? "Us" : "Client" })
+      .where(eq(schema.placements.campaignId, campaignId));
+  }
 
   await db
     .update(schema.billingOnboarding)
@@ -727,6 +767,7 @@ export function addPlacement(
     publication: Publication;
     scheduledDate?: string;
     scheduledEndDate?: string;
+    historicalDateOverride?: boolean;
     interviewScheduled?: boolean;
     committedImpressions?: number;
     copyProducer?: "Us" | "Client";
@@ -791,7 +832,9 @@ export function addPlacement(
       await assertPlacementDateAllowed(
         data.scheduledDate,
         data.type,
-        data.publication
+        data.publication,
+        undefined,
+        { allowHistoricalDateOverride: data.historicalDateOverride === true }
       );
     }
 
@@ -1056,6 +1099,7 @@ export async function updatePlacementMetadata(
     publication?: Publication;
     scheduledDate?: string | null;
     scheduledEndDate?: string | null;
+    historicalDateOverride?: boolean;
     interviewScheduled?: boolean | null;
     committedImpressions?: number | null;
     status?: PlacementStatus;
@@ -1092,12 +1136,18 @@ export async function updatePlacementMetadata(
     data.scheduledDate !== undefined
       ? data.scheduledDate
       : placementRow.scheduledDate;
+  const allowHistoricalDateOverride =
+    data.historicalDateOverride === true ||
+    (nextScheduledDate != null &&
+      nextScheduledDate === placementRow.scheduledDate &&
+      isPastDateKey(nextScheduledDate, getTodayDateKey()));
   if (nextScheduledDate) {
     await assertPlacementDateAllowed(
       nextScheduledDate,
       nextType,
       nextPublication,
-      placementId
+      placementId,
+      { allowHistoricalDateOverride }
     );
   }
 

@@ -49,8 +49,7 @@ export default async function CampaignRoundFormPage({ params }: PageProps) {
     notFound();
   }
 
-  const billingMeta = extractBillingMeta(campaign.notes);
-  const wantsPeakCopy = billingMeta.wantsPeakCopy ?? true;
+  const wantsPeakCopy = campaign.billingOnboarding?.wantsPeakCopy ?? true;
 
   const round = campaign.onboardingRounds.find((entry) => entry.id === params.roundId);
   if (!round) {
@@ -109,24 +108,4 @@ export default async function CampaignRoundFormPage({ params }: PageProps) {
       )}
     </div>
   );
-}
-
-function extractBillingMeta(notes?: string): {
-  wantsPeakCopy?: boolean;
-} {
-  if (!notes) return {};
-  const start = notes.indexOf("<!-- billing-meta:start -->");
-  const end = notes.indexOf("<!-- billing-meta:end -->");
-  if (start === -1 || end === -1 || end < start) return {};
-
-  const raw = notes
-    .slice(start + "<!-- billing-meta:start -->".length, end)
-    .trim();
-  try {
-    return JSON.parse(raw) as {
-      wantsPeakCopy?: boolean;
-    };
-  } catch {
-    return {};
-  }
 }

@@ -24,10 +24,19 @@ import {
   ensureDateOption,
   getPlacementAvailableCapacityDates,
   getTodayDateKey,
+  isPastDateKey,
 } from "@/lib/schedule-capacity";
 
 function isPodcastRollType(type: Placement["type"]): boolean {
   return type === ":30 Pre-Roll" || type === ":30 Mid-Roll";
+}
+
+function hasHistoricalDateOverride(placement: Placement, todayKey: string): boolean {
+  return Boolean(placement.scheduledDate && isPastDateKey(placement.scheduledDate, todayKey));
+}
+
+function getHistoricalDateDraft(placement: Placement, todayKey: string): string {
+  return hasHistoricalDateOverride(placement, todayKey) ? placement.scheduledDate ?? "" : "";
 }
 
 interface AdminPlacementListProps {
@@ -52,6 +61,7 @@ export function AdminPlacementList({
   xeroConnected = false,
 }: AdminPlacementListProps) {
   const router = useRouter();
+  const todayKey = useMemo(() => getTodayDateKey(), []);
   const [copiedLink, setCopiedLink] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -71,6 +81,25 @@ export function AdminPlacementList({
       placements.map((placement) => [placement.id, placement.scheduledDate ?? ""])
     )
   );
+  const [historicalDateDrafts, setHistoricalDateDrafts] = useState<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        placements.map((placement) => [
+          placement.id,
+          getHistoricalDateDraft(placement, todayKey),
+        ])
+      )
+  );
+  const [historicalDateEnabledById, setHistoricalDateEnabledById] = useState<
+    Record<string, boolean>
+  >(() =>
+    Object.fromEntries(
+      placements.map((placement) => [
+        placement.id,
+        hasHistoricalDateOverride(placement, todayKey),
+      ])
+    )
+  );
   const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [capacityError, setCapacityError] = useState<string | null>(null);
@@ -78,7 +107,6 @@ export function AdminPlacementList({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [invoiceModalPlacementId, setInvoiceModalPlacementId] = useState<string | null>(null);
   const [unlinkingInvoiceId, setUnlinkingInvoiceId] = useState<string | null>(null);
-  const todayKey = useMemo(() => getTodayDateKey(), []);
 
   useEffect(() => {
     setDateDrafts(
@@ -86,7 +114,23 @@ export function AdminPlacementList({
         placements.map((placement) => [placement.id, placement.scheduledDate ?? ""])
       )
     );
-  }, [placements]);
+    setHistoricalDateDrafts(
+      Object.fromEntries(
+        placements.map((placement) => [
+          placement.id,
+          getHistoricalDateDraft(placement, todayKey),
+        ])
+      )
+    );
+    setHistoricalDateEnabledById(
+      Object.fromEntries(
+        placements.map((placement) => [
+          placement.id,
+          hasHistoricalDateOverride(placement, todayKey),
+        ])
+      )
+    );
+  }, [placements, todayKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,9 +335,20 @@ export function AdminPlacementList({
     );
   }
 
-  async function handleDateChange(placement: Placement, value: string) {
+  async function handleDateChange(
+    placement: Placement,
+    value: string,
+    options?: { historicalDateOverride?: boolean }
+  ) {
     const placementId = placement.id;
+    const previousHistoricalDate =
+      historicalDateDrafts[placementId] ?? getHistoricalDateDraft(placement, todayKey);
+    const previousHistoricalEnabled =
+      historicalDateEnabledById[placementId] ?? hasHistoricalDateOverride(placement, todayKey);
     setDateDrafts((prev) => ({ ...prev, [placementId]: value }));
+    if (options?.historicalDateOverride) {
+      setHistoricalDateDrafts((prev) => ({ ...prev, [placementId]: value }));
+    }
     setDateMessages((prev) => {
       const next = { ...prev };
       delete next[placementId];
@@ -309,6 +364,10 @@ export function AdminPlacementList({
           campaignId,
           placementId,
           scheduledDate: value || null,
+          historicalDateOverride:
+            options?.historicalDateOverride && isPastDateKey(value, todayKey)
+              ? true
+              : undefined,
         }),
       });
       if (res.ok) {
@@ -323,6 +382,14 @@ export function AdminPlacementList({
         setDateDrafts((prev) => ({
           ...prev,
           [placementId]: placement.scheduledDate ?? "",
+        }));
+        setHistoricalDateDrafts((prev) => ({
+          ...prev,
+          [placementId]: previousHistoricalDate,
+        }));
+        setHistoricalDateEnabledById((prev) => ({
+          ...prev,
+          [placementId]: previousHistoricalEnabled,
         }));
         setDateMessages((prev) => ({
           ...prev,
@@ -675,7 +742,11 @@ export function AdminPlacementList({
                             <select
                               id={`date-${placement.id}`}
                               value={dateDrafts[placement.id] ?? ""}
-                              disabled={updatingId === placement.id || capacityLoading}
+                              disabled={
+                                updatingId === placement.id ||
+                                capacityLoading ||
+                                Boolean(historicalDateEnabledById[placement.id])
+                              }
                               onChange={(e) =>
                                 handleDateChange(placement, e.target.value)
                               }
@@ -693,6 +764,37 @@ export function AdminPlacementList({
                                 </option>
                               ))}
                             </select>
+                            <label className="flex items-center gap-1 text-xs text-gray-600">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(historicalDateEnabledById[placement.id])}
+                                disabled={updatingId === placement.id}
+                                onChange={(e) =>
+                                  setHistoricalDateEnabledById((prev) => ({
+                                    ...prev,
+                                    [placement.id]: e.target.checked,
+                                  }))
+                                }
+                              />
+                              Past date
+                            </label>
+                            {historicalDateEnabledById[placement.id] && (
+                              <input
+                                type="date"
+                                value={historicalDateDrafts[placement.id] ?? ""}
+                                disabled={updatingId === placement.id}
+                                onChange={(e) => {
+                                  setHistoricalDateDrafts((prev) => ({
+                                    ...prev,
+                                    [placement.id]: e.target.value,
+                                  }));
+                                  handleDateChange(placement, e.target.value, {
+                                    historicalDateOverride: true,
+                                  });
+                                }}
+                                className="w-[10rem] rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 disabled:opacity-50"
+                              />
+                            )}
                             {placement.publication === PODCAST_PUBLICATION && (
                               <>
                                 <label className="text-sm text-gray-500">End:</label>
@@ -737,6 +839,12 @@ export function AdminPlacementList({
                           )}
                           {!dateMessages[placement.id] && capacityError && (
                             <p className="text-xs text-red-600">{capacityError}</p>
+                          )}
+                          {historicalDateEnabledById[placement.id] && (
+                            <p className="text-xs text-gray-500">
+                              Past dates bypass inventory checks. Future dates still use
+                              the availability picker.
+                            </p>
                           )}
                           <div className="flex items-center justify-end gap-3">
                             {confirmDeleteId === placement.id ? (

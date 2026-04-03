@@ -82,6 +82,12 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
   const [companyName, setCompanyName] = useState(
     billing.companyName || billing.poNumber || ""
   );
+  const [representingClient, setRepresentingClient] = useState(
+    billing.representingClient ?? false
+  );
+  const [wantsPeakCopy, setWantsPeakCopy] = useState(
+    billing.wantsPeakCopy ?? true
+  );
   const [billingContactName, setBillingContactName] = useState(
     billing.billingContactName || ""
   );
@@ -168,6 +174,8 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
         body: JSON.stringify({
           campaignId,
           companyName,
+          representingClient,
+          wantsPeakCopy,
           billingContactName,
           billingContactEmail,
           ioSigningContactName,
@@ -194,6 +202,8 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
 
   function handleCancel() {
     setCompanyName(billing.companyName || billing.poNumber || "");
+    setRepresentingClient(billing.representingClient ?? false);
+    setWantsPeakCopy(billing.wantsPeakCopy ?? true);
     setBillingContactName(billing.billingContactName || "");
     setBillingContactEmail(billing.billingContactEmail || "");
     setIoSigningContactName(billing.ioSigningContactName || "");
@@ -231,6 +241,28 @@ export function BillingDetails({ campaignId, billing }: BillingDetailsProps) {
         <h3 className="mb-4 text-sm font-semibold text-gray-700">Billing Details</h3>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs text-gray-500">Representing a Client</label>
+            <select
+              value={representingClient ? "yes" : "no"}
+              onChange={(e) => setRepresentingClient(e.target.value === "yes")}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500">Peak Producing Copy</label>
+            <select
+              value={wantsPeakCopy ? "yes" : "no"}
+              onChange={(e) => setWantsPeakCopy(e.target.value === "yes")}
+              className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="yes">Yes</option>
+              <option value="no">No, client is producing copy</option>
+            </select>
+          </div>
           <div>
             <label className="block text-xs text-gray-500">Company Name</label>
             <input

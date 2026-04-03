@@ -48,8 +48,6 @@ export default async function CampaignBillingFormPage({ params }: PageProps) {
     notFound();
   }
 
-  const billingMeta = extractBillingMeta(campaign.notes);
-
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
       <Link
@@ -70,8 +68,8 @@ export default async function CampaignBillingFormPage({ params }: PageProps) {
         complete={billing.complete}
         initialPrimaryContactName={campaign.contactName}
         initialPrimaryContactEmail={campaign.contactEmail}
-        initialRepresentingClient={billingMeta.representingClient}
-        initialWantsPeakCopy={billingMeta.wantsPeakCopy ?? true}
+        initialRepresentingClient={billing.representingClient}
+        initialWantsPeakCopy={billing.wantsPeakCopy ?? true}
         initialCompanyName={billing.companyName}
         initialBillingAddress={billing.billingAddress}
         initialBillingContactName={billing.billingContactName}
@@ -82,26 +80,4 @@ export default async function CampaignBillingFormPage({ params }: PageProps) {
       />
     </div>
   );
-}
-
-function extractBillingMeta(notes?: string): {
-  representingClient?: boolean;
-  wantsPeakCopy?: boolean;
-} {
-  if (!notes) return {};
-  const start = notes.indexOf("<!-- billing-meta:start -->");
-  const end = notes.indexOf("<!-- billing-meta:end -->");
-  if (start === -1 || end === -1 || end < start) return {};
-
-  const raw = notes
-    .slice(start + "<!-- billing-meta:start -->".length, end)
-    .trim();
-  try {
-    return JSON.parse(raw) as {
-      representingClient?: boolean;
-      wantsPeakCopy?: boolean;
-    };
-  } catch {
-    return {};
-  }
 }

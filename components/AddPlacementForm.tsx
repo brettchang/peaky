@@ -19,6 +19,7 @@ import {
   ADMIN_SCHEDULE_WINDOW_DAYS,
   getAvailableCapacityDates,
   getTodayDateKey,
+  isPastDateKey,
 } from "@/lib/schedule-capacity";
 
 const TYPE_OPTIONS: Array<{ value: PlacementType; label: string }> = [
@@ -61,6 +62,8 @@ export function AddPlacementForm({
   const [status, setStatus] = useState<PlacementStatus>("New Campaign");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledEndDate, setScheduledEndDate] = useState("");
+  const [useHistoricalDateOverride, setUseHistoricalDateOverride] = useState(false);
+  const [historicalScheduledDate, setHistoricalScheduledDate] = useState("");
   const [capacityDays, setCapacityDays] = useState<DateRangeCapacity["days"]>([]);
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [capacityError, setCapacityError] = useState<string | null>(null);
@@ -191,6 +194,9 @@ export function AddPlacementForm({
       committedImpressionsRaw.trim() !== ""
         ? Number.parseInt(committedImpressionsRaw, 10)
         : undefined;
+    const nextScheduledDate = useHistoricalDateOverride
+      ? historicalScheduledDate
+      : scheduledDate;
 
     const res = await fetch("/api/add-placement", {
       method: "POST",
@@ -199,8 +205,12 @@ export function AddPlacementForm({
         campaignId,
         type,
         publication,
-        scheduledDate: scheduledDate || undefined,
+        scheduledDate: nextScheduledDate || undefined,
         scheduledEndDate: scheduledEndDate || undefined,
+        historicalDateOverride:
+          useHistoricalDateOverride && isPastDateKey(nextScheduledDate, todayKey)
+            ? true
+            : undefined,
         interviewScheduled:
           formData.get("interviewScheduled") === "on" ? true : undefined,
         committedImpressions,
@@ -222,6 +232,8 @@ export function AddPlacementForm({
     setOpen(false);
     setScheduledDate("");
     setScheduledEndDate("");
+    setUseHistoricalDateOverride(false);
+    setHistoricalScheduledDate("");
     router.refresh();
   }
 
@@ -300,7 +312,7 @@ export function AddPlacementForm({
                     name="scheduledDate"
                     value={scheduledDate}
                     onChange={(e) => setScheduledDate(e.target.value)}
-                    disabled={capacityLoading}
+                    disabled={capacityLoading || useHistoricalDateOverride}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
                   >
                     <option value="">No date</option>
@@ -317,6 +329,29 @@ export function AddPlacementForm({
                   </select>
                   {capacityError && (
                     <p className="mt-1 text-xs text-red-600">{capacityError}</p>
+                  )}
+                  <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={useHistoricalDateOverride}
+                      onChange={(e) => setUseHistoricalDateOverride(e.target.checked)}
+                      className="text-gray-900 focus:ring-gray-500"
+                    />
+                    Use a historical past date
+                  </label>
+                  {useHistoricalDateOverride && (
+                    <>
+                      <input
+                        type="date"
+                        value={historicalScheduledDate}
+                        onChange={(e) => setHistoricalScheduledDate(e.target.value)}
+                        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-gray-500 focus:outline-none"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Past dates bypass inventory checks. Future scheduling still uses
+                        the availability picker above.
+                      </p>
+                    </>
                   )}
                 </div>
                 {isPodcastPlacement && (

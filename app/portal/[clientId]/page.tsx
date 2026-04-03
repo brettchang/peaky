@@ -39,6 +39,17 @@ export default async function PortalHomePage({ params }: PageProps) {
   }
 
   const { client, campaigns } = data;
+  const standardCampaignWorkflowModes = Array.from(
+    new Set(
+      campaigns
+        .filter((campaign) => campaign.category !== "Evergreen")
+        .map((campaign) =>
+          (campaign.billingOnboarding?.wantsPeakCopy ?? true)
+            ? "peak-writes"
+            : "client-writes"
+        )
+    )
+  );
   const overrideEntries = await Promise.all(
     campaigns.map(async (campaign) => {
       const key = onboardingOverridesSettingKey(campaign.id);
@@ -138,8 +149,8 @@ export default async function PortalHomePage({ params }: PageProps) {
       campaignName: row.campaignName,
       title: `${row.type} · ${row.label}`,
       description: row.dueDate
-        ? `${row.overdue ? "Overdue" : "Due"} ${formatDateLong(row.dueDate)} (5 business days before ${formatDateLong(row.firstPlacementDate!)}).`
-        : "No hard deadline yet. A due date appears once a placement date is attached.",
+        ? `${row.overdue ? "Overdue" : "Due"} ${formatDateLong(row.dueDate)} because Peak needs these details at least 5 business days before the first scheduled placement on ${formatDateLong(row.firstPlacementDate!)}.`
+        : "Complete this form so Peak has the information needed to draft, schedule, and publish the placement. A due date will appear once a placement date is attached.",
       isUrgent: !!row.overdue,
       ctaLabel: "Open Form",
       href: row.href,
@@ -159,10 +170,14 @@ export default async function PortalHomePage({ params }: PageProps) {
         campaignName: campaign.name,
         title: `${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Add Copy" : "Client Review"} · ${placement.type} (${placement.publication})`,
         description: placement.scheduledDate
-          ? `${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Scheduled" : "Review due for"} ${formatDateLong(placement.scheduledDate)}. ${isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status) ? "Add and approve the final copy in the portal." : "Please review and approve this asset."}`
+          ? `${
+              isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status)
+                ? `Scheduled for ${formatDateLong(placement.scheduledDate)}. Peak cannot finalize this placement until your team adds the final copy and approves it in the portal.`
+                : `Scheduled for ${formatDateLong(placement.scheduledDate)}. Peak needs your approval or revision request before this placement can move to production.`
+            }`
           : isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status)
-            ? "Add and approve the final copy in the portal."
-            : "Please review and approve this asset.",
+            ? "Peak is waiting on your final copy and approval before this placement can move forward."
+            : "Peak is waiting on your review so we can move this placement forward.",
         isUrgent: false,
         ctaLabel:
           isClientCopyPlacement(placement) && !isClientReviewStatus(placement.status)
@@ -184,55 +199,65 @@ export default async function PortalHomePage({ params }: PageProps) {
     }
   );
 
-  const placementCount = placements.length;
   const hasStandardCampaigns = campaigns.some(
     (campaign) => campaign.category !== "Evergreen"
   );
-  const approvedCount = placements.filter(
-    (row) => isApprovedStatus(row.placement.status)
-  ).length;
-  const reviewCount = placements.filter(
-    (row) =>
-      isClientReviewStatus(row.placement.status) ||
-      (isClientCopyPlacement(row.placement) &&
-        !isApprovedStatus(row.placement.status))
-  ).length;
-  const pendingFormCount = formRows.filter(
-    (row) => !row.complete && !row.overridden && row.placementCount > 0
-  ).length;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{client.name}</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Manage placements, onboarding, and copy approvals in one place.
+          Track every placement, see what Peak is doing, and know exactly when your team needs to step in.
         </p>
       </div>
 
-      <div className="mb-6 rounded-lg border border-gray-200 bg-white px-5 py-4">
-        <h2 className="text-sm font-semibold text-gray-900">
-          Welcome to your Peak Client Portal
+      <div className="mb-6 rounded-2xl border border-gray-200 bg-white px-5 py-5">
+        <h2 className="text-base font-semibold text-gray-900">
+          How this portal works
         </h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Thanks for working with The Peak. We&apos;ll share copy and placement analytics here.
-        </p>
-        <p className="mt-2 text-sm text-gray-600">
-          {hasStandardCampaigns
-            ? "Process: complete forms, then either we produce copy for review or your team adds and approves copy directly in the portal."
-            : "Review placements and performance updates in one place."}
-        </p>
-      </div>
-
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryBox label="Placements" value={placementCount} />
-        <SummaryBox label="Ready for Review" value={reviewCount} />
-        <SummaryBox label="Approved" value={approvedCount} />
-        <SummaryBox
-          label="Pending Forms"
-          value={pendingFormCount}
-          tone={pendingFormCount > 0 ? "alert" : "default"}
-        />
+        {hasStandardCampaigns ? (
+          <>
+            <p className="mt-2 text-sm text-gray-600">
+              Your campaigns may follow one of two workflows depending on who is responsible for writing the copy. Open a campaign to see the exact steps for that campaign.
+            </p>
+            <div
+              className={`mt-4 grid gap-4 ${
+                standardCampaignWorkflowModes.length > 1
+                  ? "lg:grid-cols-2"
+                  : "lg:grid-cols-1"
+              }`}
+            >
+              {standardCampaignWorkflowModes.includes("peak-writes") && (
+                <WorkflowCard
+                  title="If Peak Is Writing The Copy"
+                  steps={[
+                    "You complete the onboarding form so we have the details we need.",
+                    "Peak writes the copy and adds it to the portal.",
+                    "We send the draft to you for review.",
+                    "You review the copy, approve it, or request edits.",
+                    "Peak publishes the placement once it is approved.",
+                  ]}
+                />
+              )}
+              {standardCampaignWorkflowModes.includes("client-writes") && (
+                <WorkflowCard
+                  title="If Your Team Is Writing The Copy"
+                  steps={[
+                    "You complete the campaign form and confirm the placement details.",
+                    "Your team adds copy directly into each placement in the portal.",
+                    "You confirm the final copy is ready to run.",
+                    "Peak publishes the placement once your copy is approved.",
+                  ]}
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-gray-600">
+            This portal is your source of truth for placement progress, approvals, and performance.
+          </p>
+        )}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-12">
@@ -241,7 +266,7 @@ export default async function PortalHomePage({ params }: PageProps) {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-gray-900">Placements</h2>
               <p className="mt-1 text-sm text-gray-500">
-                This is the main view for tracking status, approvals, and performance.
+                This is your main tracking table. Each row shows the current stage and the next step in plain language.
               </p>
             </div>
             <PlacementDashboard
@@ -255,7 +280,7 @@ export default async function PortalHomePage({ params }: PageProps) {
           <div className="rounded-lg border border-gray-200 bg-white px-5 py-4">
             <h2 className="text-sm font-semibold text-gray-900">Action Required</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Complete onboarding tasks and review copy to keep placements on track.
+              These are the items currently waiting on your team, with a note explaining why each one matters.
             </p>
             {actionRows.length === 0 ? (
               <p className="mt-3 text-sm text-gray-500">No open actions right now.</p>
@@ -298,9 +323,9 @@ export default async function PortalHomePage({ params }: PageProps) {
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white px-5 py-4">
-            <h2 className="text-sm font-semibold text-gray-900">Onboarding Forms</h2>
+            <h2 className="text-sm font-semibold text-gray-900">Forms Waiting on You</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Each form opens on its own page.
+              Complete these forms so Peak has the information needed to draft and schedule placements.
             </p>
             <div className="mt-3 space-y-3">
               {hubFormRows.length === 0 && (
@@ -344,28 +369,48 @@ export default async function PortalHomePage({ params }: PageProps) {
   );
 }
 
-function SummaryBox({
-  label,
-  value,
-  tone = "default",
+function WorkflowCard({
+  title,
+  steps,
 }: {
-  label: string;
-  value: string | number;
-  tone?: "default" | "alert";
+  title: string;
+  steps: string[];
 }) {
   return (
-    <div
-      className={`rounded-lg border px-4 py-3 ${
-        tone === "alert"
-          ? "border-amber-300 bg-amber-50"
-          : "border-gray-200 bg-white"
-      }`}
-    >
-      <p className="text-xs font-medium text-gray-600">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-gray-900">{value}</p>
+    <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
+      <p className="text-sm font-semibold text-gray-900">{title}</p>
+      <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {steps.map((step, index) => (
+          <CompactWorkflowStep
+            key={`${title}-${index}`}
+            number={index + 1}
+            body={step}
+          />
+        ))}
+      </div>
     </div>
   );
 }
+
+function CompactWorkflowStep({
+  number,
+  body,
+}: {
+  number: number;
+  body: string;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-4 py-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
+          {number}
+        </div>
+        <p className="text-sm leading-6 text-gray-600">{body}</p>
+      </div>
+    </div>
+  );
+}
+
 
 function subtractBusinessDays(dateStr: string, businessDays: number): string {
   const date = new Date(dateStr + "T00:00:00");

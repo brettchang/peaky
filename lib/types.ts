@@ -30,49 +30,146 @@ export type CampaignCategory = "Standard" | "Evergreen";
 export const CAMPAIGN_MANAGERS = ["Matheus", "Brett", "Will"] as const;
 export type CampaignManager = (typeof CAMPAIGN_MANAGERS)[number];
 
-// === Client-facing placement statuses ===
+// === Client-facing placement phases ===
 export type ClientDisplayStatus =
-  | "New Campaign"
-  | "Copywriting in Progress"
-  | "Peak Team Review Complete"
-  | "Sent for Approval"
-  | "Approved"
-  | "Onboarding Requested"
-  | "Drafting Script"
-  | "Script Review by Client"
-  | "Approved Script"
-  | "Audio Sent for Approval"
-  | "Audio Sent"
-  | "Audio Approved"
-  | "Drafting Questions"
-  | "Questions In Review"
-  | "Client Reviewing Interview"
-  | "Revising for Client"
-  | "Approved Interview";
+  | "Needs Your Input"
+  | "In Progress"
+  | "Ready for Review"
+  | "Performance Ready"
+  | "Approved";
 
-export function getClientDisplayStatus(status: PlacementStatus): ClientDisplayStatus {
-  switch (status) {
+export const CLIENT_DISPLAY_STATUSES: ClientDisplayStatus[] = [
+  "Needs Your Input",
+  "In Progress",
+  "Ready for Review",
+  "Performance Ready",
+  "Approved",
+];
+
+type ClientStatusSource =
+  | PlacementStatus
+  | Pick<Placement, "status" | "copyProducer" | "stats">;
+
+function resolveClientStatusInput(input: ClientStatusSource): {
+  status: PlacementStatus;
+  copyProducer?: "Us" | "Client";
+  stats?: PerformanceStats;
+} {
+  if (typeof input === "string") {
+    return { status: input };
+  }
+  return {
+    status: input.status,
+    copyProducer: input.copyProducer,
+    stats: input.stats,
+  };
+}
+
+export function getClientDisplayStatus(
+  input: ClientStatusSource
+): ClientDisplayStatus {
+  const { status, copyProducer, stats } = resolveClientStatusInput(input);
+
+  if (copyProducer === "Client" && !isApprovedStatus(status) && !isClientReviewStatus(status)) {
+    return "Needs Your Input";
+  }
+  if (isApprovedStatus(status) && stats) {
+    return "Performance Ready";
+  }
+  if (isApprovedStatus(status)) {
+    return "Approved";
+  }
+  if (isClientReviewStatus(status)) {
+    return "Ready for Review";
+  }
+  return status === "New Campaign" || status === "Onboarding Requested"
+    ? "Needs Your Input"
+    : "In Progress";
+}
+
+export function getClientStatusDescription(
+  placement: Pick<
+    Placement,
+    "status" | "copyProducer" | "type" | "publication" | "stats"
+  >
+): {
+  label: ClientDisplayStatus;
+  description: string;
+  nextStep: string;
+} {
+  const label = getClientDisplayStatus(placement);
+
+  if (placement.copyProducer === "Client" && !isApprovedStatus(placement.status)) {
+    return {
+      label,
+      description:
+        "We need your final copy and destination link before this placement can move ahead.",
+      nextStep: "Add your copy in the portal, then approve it so our team can schedule it.",
+    };
+  }
+
+  switch (placement.status) {
     case "New Campaign":
-      return "New Campaign";
+      return {
+        label,
+        description:
+          "We are waiting for your campaign form before our team can start drafting this placement.",
+        nextStep: "Complete the campaign form so we can begin preparing your copy.",
+      };
+    case "Onboarding Requested":
+      return {
+        label,
+        description:
+          "We need your onboarding details before we can draft the script or prepare interview questions.",
+        nextStep: "Complete the onboarding form so production can begin.",
+      };
     case "Copywriting in Progress":
+    case "Drafting Script":
+    case "Drafting Questions":
+    case "Revising for Client":
+      return {
+        label,
+        description:
+          "Our team is actively preparing this placement for you.",
+        nextStep: "No action is needed right now. We will notify you when it is ready to review.",
+      };
     case "Peak Team Review Complete":
     case "Sent for Approval":
-    case "Approved":
-    case "Onboarding Requested":
-    case "Drafting Script":
     case "Script Review by Client":
-    case "Approved Script":
     case "Audio Sent for Approval":
     case "Audio Sent":
-    case "Audio Approved":
-    case "Drafting Questions":
     case "Questions In Review":
     case "Client Reviewing Interview":
-    case "Revising for Client":
+      return {
+        label,
+        description:
+          "This placement is ready for your review and approval.",
+        nextStep: "Open the placement, review the draft, and either approve it or request changes.",
+      };
+    case "Approved":
+    case "Approved Script":
+    case "Audio Approved":
     case "Approved Interview":
-      return status;
+      if (placement.stats) {
+        return {
+          label,
+          description:
+            "Performance data is now available for this placement.",
+          nextStep: "Click View Stats to review how the placement performed.",
+        };
+      }
+      return {
+        label,
+        description:
+          "This placement has been approved and is moving toward publication.",
+        nextStep: "No action is needed unless your team wants to make an approved change before the cutoff.",
+      };
     default:
-      return "Copywriting in Progress";
+      return {
+        label,
+        description: "Our team is working through the next step for this placement.",
+        nextStep: "We will update this page as soon as there is something for you to review.",
+      };
   }
 }
 
@@ -110,7 +207,7 @@ export const PODCAST_PLACEMENT_TYPES: PlacementType[] = [
 export const DAILY_CAPACITY_LIMITS: Record<PlacementType, number | null> = {
   Primary: 1,
   Secondary: 1,
-  "Peak Picks": 1,
+  "Peak Picks": 2,
   Beehiv: null,
   "Smart Links": null,
   BLS: null,

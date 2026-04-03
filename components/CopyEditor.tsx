@@ -123,6 +123,20 @@ export function CopyEditor({
           B
         </button>
 
+        {/* Italic */}
+        <button
+          type="button"
+          onMouseDown={preventFocusLoss}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          className={`rounded px-2 py-1 text-xs font-semibold ${
+            editor.isActive("italic")
+              ? "bg-gray-200 text-gray-900"
+              : "text-gray-600 hover:bg-gray-100"
+          }`}
+        >
+          <span className="italic">I</span>
+        </button>
+
         {/* Bullet List */}
         <button
           type="button"

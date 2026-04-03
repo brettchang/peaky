@@ -461,7 +461,10 @@ export async function processSlackEmailAgentCommand(instruction: string): Promis
     ]);
     conversationSubject = conversation.subject || "";
     existingMessages = messages
-      .map((m) => `From: ${m.fromField?.name || m.fromField?.address || "unknown"}\nDate: ${m.deliveredAt || ""}\n\n${m.body || m.preview || ""}`)
+      .map((m) => {
+        const sender = m.from[0];
+        return `From: ${sender?.name || sender?.email || "unknown"}\nDate: ${m.deliveredAt || ""}\n\n${m.body || m.preview || ""}`;
+      })
       .join("\n---\n");
   }
 

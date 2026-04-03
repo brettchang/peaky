@@ -126,12 +126,12 @@ export function DashboardTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">
-          {data.map(({ campaign, clientName, clientPortalId }) => {
+          {data.map(({ campaign, clientName }) => {
             const adsCreated = campaign.placements.length;
             const adsScheduled = campaign.placements.filter(
               (p) => p.scheduledDate
             ).length;
-            const portalClientUrl = `${baseUrl}/portal/${clientPortalId}`;
+            const portalDashboardUrl = `${baseUrl}/portal/${campaign.portalId}`;
             const selectedStatus = statusDrafts[campaign.id] ?? campaign.status;
             const isEvergreen = campaign.category === "Evergreen";
             const isSaving = savingCampaignId === campaign.id;
@@ -201,10 +201,10 @@ export function DashboardTable({
                 </td>
                 <td className="px-4 py-3">
                   <button
-                    onClick={() => handleCopyLink(portalClientUrl)}
+                    onClick={() => handleCopyLink(portalDashboardUrl)}
                     className="whitespace-nowrap rounded border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
                   >
-                    {copiedId === portalClientUrl
+                    {copiedId === portalDashboardUrl
                       ? "Copied!"
                       : "Copy Portal Link"}
                   </button>

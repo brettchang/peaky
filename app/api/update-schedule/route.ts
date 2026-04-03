@@ -4,7 +4,7 @@ import { getCampaignById, getPlacement, updatePlacementScheduledDate } from "@/l
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { campaignId, placementId, scheduledDate } = body;
+  const { campaignId, placementId, scheduledDate, historicalDateOverride } = body;
 
   if (!campaignId || !placementId) {
     return NextResponse.json(
@@ -21,6 +21,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+  }
+
+  if (
+    historicalDateOverride !== undefined &&
+    historicalDateOverride !== null &&
+    typeof historicalDateOverride !== "boolean"
+  ) {
+    return NextResponse.json(
+      { error: "historicalDateOverride must be a boolean when provided" },
+      { status: 400 }
+    );
   }
 
   const campaign = await getCampaignById(campaignId);
@@ -42,7 +53,8 @@ export async function POST(request: NextRequest) {
   const success = await updatePlacementScheduledDate(
     campaignId,
     placementId,
-    scheduledDate ?? null
+    scheduledDate ?? null,
+    { historicalDateOverride: historicalDateOverride === true }
   );
 
   if (!success) {

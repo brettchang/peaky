@@ -30,8 +30,10 @@ const statusStyles: Record<string, string> = {
   Wrapped: "bg-purple-100 text-purple-700",
 
   // Client display statuses
-  "In Progress": "bg-gray-100 text-gray-700",
+  "Needs Your Input": "bg-amber-100 text-amber-800",
+  "In Progress": "bg-slate-100 text-slate-700",
   "Ready for Review": "bg-blue-100 text-blue-700",
+  "Performance Ready": "bg-emerald-100 text-emerald-700",
 };
 
 export function StatusBadge({ status }: { status: AnyStatus }) {

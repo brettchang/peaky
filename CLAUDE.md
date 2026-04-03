@@ -463,7 +463,7 @@ Helper functions in `lib/types.ts`: `isPodcastPlacement()`, `isPodcastInterviewT
 - IO metadata stored on campaign: `pandadoc_document_id`, `pandadoc_status`, `pandadoc_document_url`
 
 ### Capacity Scheduling
-- Daily limits per placement type per publication (Primary: 1/day, Secondary: 1/day, Peak Picks: 1/day, others: unlimited)
+- Daily limits per placement type per publication (Primary: 1/day, Secondary: 1/day, Peak Picks: 2/day, others: unlimited)
 - Check available slots for date range via `/api/schedule-capacity`
 - Bulk schedule respecting capacity constraints via `/api/bulk-schedule`
 - Weekdays only

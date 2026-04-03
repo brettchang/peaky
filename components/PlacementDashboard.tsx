@@ -1,35 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import {
+  CLIENT_DISPLAY_STATUSES,
   ClientPlacementRow,
-  PlacementStatus,
   getClientDisplayStatus,
-  getPlacementWorkflowGroup,
+  getClientStatusDescription,
 } from "@/lib/types";
+import { compareClientPlacementRowsChronologically } from "@/lib/client-portal-placement-sort";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PerformanceStats } from "@/components/PerformanceStats";
 
-type FilterTab =
-  | "All"
-  | "Needs Action"
-  | "In Review"
-  | "Approved";
+type FilterTab = "All" | typeof CLIENT_DISPLAY_STATUSES[number];
 
-const FILTER_TABS: FilterTab[] = [
-  "All",
-  "Needs Action",
-  "In Review",
-  "Approved",
-];
+const FILTER_TABS: FilterTab[] = ["All", ...CLIENT_DISPLAY_STATUSES];
 
-function matchesFilter(status: PlacementStatus, filter: FilterTab): boolean {
+function matchesFilter(row: ClientPlacementRow, filter: FilterTab): boolean {
   if (filter === "All") return true;
-  const group = getPlacementWorkflowGroup(status);
-  if (filter === "Needs Action") return group === "needs-action";
-  if (filter === "In Review") return group === "in-review";
-  return group === "approved";
+  return getClientDisplayStatus(row.placement) === filter;
 }
 
 export function PlacementDashboard({
@@ -42,26 +31,33 @@ export function PlacementDashboard({
   const [activeFilter, setActiveFilter] = useState<FilterTab>("All");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const filtered = placements.filter((row) =>
-    matchesFilter(row.placement.status, activeFilter)
-  );
+  const filtered = placements
+    .filter((row) => matchesFilter(row, activeFilter))
+    .sort(compareClientPlacementRowsChronologically);
 
   return (
     <div>
-      <div className="mb-6 flex gap-2">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveFilter(tab)}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-              activeFilter === tab
-                ? "bg-gray-900 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+      <div className="mb-6 flex flex-wrap gap-2">
+        {FILTER_TABS.map((tab) => {
+          const count =
+            tab === "All"
+              ? placements.length
+              : placements.filter((row) => matchesFilter(row, tab)).length;
+
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveFilter(tab)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                activeFilter === tab
+                  ? "bg-gray-900 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {tab} ({count})
+            </button>
+          );
+        })}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-gray-200">
@@ -70,19 +66,20 @@ export function PlacementDashboard({
             <tr>
               <th className="px-4 py-3 font-medium text-gray-500">Placement</th>
               <th className="px-4 py-3 font-medium text-gray-500">Campaign</th>
-              <th className="px-4 py-3 font-medium text-gray-500">Publication</th>
               <th className="px-4 py-3 font-medium text-gray-500">Scheduled Date</th>
               <th className="px-4 py-3 font-medium text-gray-500">Status</th>
+              <th className="px-4 py-3 font-medium text-gray-500">What Happens Next</th>
               <th className="px-4 py-3 font-medium text-gray-500">Performance</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
             {filtered.map((row) => {
-              const displayStatus = getClientDisplayStatus(row.placement.status);
+              const displayStatus = getClientDisplayStatus(row.placement);
+              const statusCopy = getClientStatusDescription(row.placement);
               const hasStats = !!row.placement.stats;
               const isExpanded = expandedId === row.placement.id;
               return (
-                <>
+                <Fragment key={row.placement.id}>
                   <tr key={row.placement.id} className="group">
                     <td className="px-4 py-3">
                       <Link
@@ -92,12 +89,12 @@ export function PlacementDashboard({
                       >
                         {row.placement.type}
                       </Link>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {row.placement.publication}
+                      </p>
                     </td>
                     <td className="px-4 py-3 text-gray-900">
                       {row.campaignName}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {row.placement.publication}
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {row.placement.scheduledDate
@@ -105,10 +102,18 @@ export function PlacementDashboard({
                             row.placement.scheduledDate,
                             row.placement.scheduledEndDate
                           )
-                        : ""}
+                        : "Not scheduled yet"}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={displayStatus} />
+                      <div className="space-y-2">
+                        <StatusBadge status={displayStatus} />
+                        <p className="max-w-xs text-xs text-gray-500">
+                          {statusCopy.description}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      <p className="max-w-xs text-sm">{statusCopy.nextStep}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {hasStats ? (
@@ -126,13 +131,13 @@ export function PlacementDashboard({
                     </td>
                   </tr>
                   {isExpanded && hasStats && (
-                    <tr key={`${row.placement.id}-stats`}>
+                    <tr>
                       <td colSpan={6} className="bg-gray-50 px-4 py-4">
                         <PerformanceStats stats={row.placement.stats!} />
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
             {filtered.length === 0 && (

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   Placement,
-  getClientDisplayStatus,
+  getClientStatusDescription,
   isApprovedStatus,
   isClientReviewStatus,
   isClientCopyPlacement,
@@ -11,6 +11,7 @@ import {
   isPodcastPublication,
 } from "@/lib/types";
 import { formatCopy } from "@/lib/format-copy";
+import { getPrimaryPlacementAssetUploadError } from "@/lib/placement-asset-validation";
 import {
   canClientEditApprovedPlacementCopy,
   formatPlacementClientEditCutoff,
@@ -43,17 +44,14 @@ export function CopyReview({
   const [logoUrl, setLogoUrl] = useState(placement.logoUrl ?? "");
   const [uploadingField, setUploadingField] = useState<"imageUrl" | "logoUrl" | null>(null);
 
-  const displayStatus = getClientDisplayStatus(placement.status);
+  const clientStatus = getClientStatusDescription(placement);
   const isClientCopyPlacementFlow = isClientCopyPlacement(placement);
   const hasEdits = editedCopy !== savedCopy;
-  const isClientReviewStage = isClientReviewStatus(displayStatus);
+  const isClientReviewStage = isClientReviewStatus(placement.status);
   const isClientSelfServeStage =
     isClientCopyPlacementFlow &&
     !isClientReviewStage &&
-    displayStatus !== "Approved" &&
-    displayStatus !== "Approved Script" &&
-    displayStatus !== "Audio Approved" &&
-    displayStatus !== "Approved Interview";
+    !isApprovedStatus(placement.status);
   const canEditApprovedCopy = canClientEditApprovedPlacementCopy(placement);
   const isEditable =
     isClientCopyPlacementFlow ||
@@ -69,11 +67,8 @@ export function CopyReview({
     placement.currentCopy.trim().length > 0;
   const canClientViewCopy =
     isClientSelfServeStage ||
-    isClientReviewStatus(displayStatus) ||
-    displayStatus === "Approved" ||
-    displayStatus === "Approved Script" ||
-    displayStatus === "Audio Approved" ||
-    displayStatus === "Approved Interview" ||
+    isClientReviewStatus(placement.status) ||
+    isApprovedStatus(placement.status) ||
     approvedAndScheduled;
 
   const reviewAssetLabel = isPodcastPublication(placement.publication)
@@ -133,6 +128,13 @@ export function CopyReview({
     setUploadingField(field);
     setError(null);
     try {
+      if (placement.type === "Primary") {
+        const uploadError = getPrimaryPlacementAssetUploadError(file);
+        if (uploadError) {
+          throw new Error(uploadError);
+        }
+      }
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("campaignId", campaignId);
@@ -392,8 +394,8 @@ export function CopyReview({
         </div>
       )}
 
-      {/* Copywriting in Progress */}
-      {displayStatus === "Copywriting in Progress" && (
+      {/* Status guidance while Peak is working */}
+      {clientStatus.label === "In Progress" && (
         <div className="space-y-4">
           {placement.revisionNotes && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -406,26 +408,30 @@ export function CopyReview({
             </div>
           )}
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-            <p className="text-sm text-blue-700">
-              Our team is working on this placement. You&apos;ll receive
-              the copy for review soon.
+            <p className="text-sm font-medium text-blue-800">
+              {clientStatus.description}
+            </p>
+            <p className="mt-1 text-sm text-blue-700">
+              {clientStatus.nextStep}
             </p>
           </div>
         </div>
       )}
 
-      {/* New Campaign */}
-      {displayStatus === "New Campaign" && (
+      {/* Waiting on the client */}
+      {clientStatus.label === "Needs Your Input" && !isClientSelfServeStage && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <p className="text-sm text-gray-700">
-            This placement is waiting on your copy onboarding form. Once submitted,
-            status will move to Copywriting in Progress.
+          <p className="text-sm font-medium text-gray-900">
+            {clientStatus.description}
+          </p>
+          <p className="mt-1 text-sm text-gray-700">
+            {clientStatus.nextStep}
           </p>
         </div>
       )}
 
       {/* Approved */}
-      {isApprovedStatus(displayStatus) && (
+      {isApprovedStatus(placement.status) && (
         <div
           className={`rounded-lg p-4 ${
             canEditApprovedCopy

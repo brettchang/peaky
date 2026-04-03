@@ -29,6 +29,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (
+      fields.historicalDateOverride !== undefined &&
+      fields.historicalDateOverride !== null &&
+      typeof fields.historicalDateOverride !== "boolean"
+    ) {
+      return NextResponse.json(
+        { error: "historicalDateOverride must be a boolean when provided" },
+        { status: 400 }
+      );
+    }
+
+    if (
       fields.committedImpressions !== undefined &&
       fields.committedImpressions !== null &&
       (!Number.isFinite(fields.committedImpressions) ||

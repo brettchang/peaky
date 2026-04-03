@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { DASHBOARD_COOKIE_NAME, isDashboardAuthenticated } from "@/lib/dashboard-auth";
-import { updateBillingOnboardingByAdmin } from "@/lib/db";
+import { getCampaignById, updateBillingOnboardingByAdmin } from "@/lib/db";
 import type { InvoiceCadence } from "@/lib/types";
 
 interface UpdateBillingPayload {
   campaignId: string;
   companyName?: string;
+  representingClient?: boolean;
+  wantsPeakCopy?: boolean;
   billingContactName?: string;
   billingContactEmail?: string;
   ioSigningContactName?: string;
@@ -33,6 +35,8 @@ export async function POST(request: NextRequest) {
 
   const updated = await updateBillingOnboardingByAdmin(body.campaignId, {
     poNumber: body.companyName,
+    representingClient: body.representingClient,
+    wantsPeakCopy: body.wantsPeakCopy,
     billingContactName: body.billingContactName,
     billingContactEmail: body.billingContactEmail,
     ioSigningContactName: body.ioSigningContactName,
@@ -51,6 +55,11 @@ export async function POST(request: NextRequest) {
 
   revalidatePath("/dashboard", "layout");
   revalidatePath(`/dashboard/${body.campaignId}`);
+  const campaign = await getCampaignById(body.campaignId);
+  if (campaign?.portalId) {
+    revalidatePath(`/portal/${campaign.portalId}`);
+    revalidatePath(`/portal/${campaign.portalId}/${body.campaignId}`);
+  }
 
   return NextResponse.json({ success: true });
 }

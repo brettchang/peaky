@@ -141,6 +141,14 @@ export function getDashboardGoogleConfig() {
   };
 }
 
+export function getDashboardDevPassword(): string | null {
+  const password = process.env.DASHBOARD_PASSWORD?.trim();
+  if (!password || process.env.NODE_ENV === "production") {
+    return null;
+  }
+  return password;
+}
+
 export function isDashboardEmailAllowed(email: string): boolean {
   const normalizedEmail = email.trim().toLowerCase();
   const allowedEmails = getDashboardAllowedEmails();

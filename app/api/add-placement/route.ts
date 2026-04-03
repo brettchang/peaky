@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     publication,
     scheduledDate,
     scheduledEndDate,
+    historicalDateOverride,
     interviewScheduled,
     committedImpressions,
     copyProducer,
@@ -33,6 +34,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  for (const [key, value] of [
+    ["scheduledDate", scheduledDate],
+    ["scheduledEndDate", scheduledEndDate],
+  ] as const) {
+    if (
+      value !== undefined &&
+      value !== null &&
+      (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    ) {
+      return NextResponse.json(
+        { error: `${key} must be YYYY-MM-DD, null, or omitted` },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (
+    historicalDateOverride !== undefined &&
+    historicalDateOverride !== null &&
+    typeof historicalDateOverride !== "boolean"
+  ) {
+    return NextResponse.json(
+      { error: "historicalDateOverride must be a boolean when provided" },
+      { status: 400 }
+    );
+  }
+
   if (
     committedImpressions !== undefined &&
     committedImpressions !== null &&
@@ -51,6 +79,7 @@ export async function POST(request: NextRequest) {
     publication,
     scheduledDate: scheduledDate || undefined,
     scheduledEndDate: scheduledEndDate || undefined,
+    historicalDateOverride: historicalDateOverride === true,
     interviewScheduled: interviewScheduled ?? undefined,
     committedImpressions: committedImpressions ?? undefined,
     copyProducer: copyProducer || undefined,

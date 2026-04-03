@@ -2,9 +2,15 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCampaignPageData, getSetting } from "@/lib/db";
-import { getClientDisplayStatus, isClientCopyPlacement } from "@/lib/types";
+import {
+  CLIENT_DISPLAY_STATUSES,
+  getClientDisplayStatus,
+  getClientStatusDescription,
+  isClientCopyPlacement,
+} from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyReview } from "@/components/CopyReview";
+import { comparePlacementsChronologically } from "@/lib/client-portal-placement-sort";
 import {
   onboardingOverridesSettingKey,
   parseCampaignOnboardingOverrides,
@@ -50,27 +56,26 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
       (placement.currentCopy && placement.copyVersion > 0)
   );
   const hasVisiblePlacements = placementsVisibleInPortal.length > 0;
-  const sortedVisiblePlacements = placementsVisibleInPortal
-    .sort((a, b) => comparePlacementDateDistance(a.scheduledDate, b.scheduledDate));
+  const sortedVisiblePlacements = [...placementsVisibleInPortal].sort(
+    comparePlacementsChronologically
+  );
   const requestedSort = searchParams?.sort;
   const activeSort = requestedSort === "status" ? "status" : "date";
   const placementsWithSortApplied =
     activeSort === "status"
       ? [...sortedVisiblePlacements].sort((a, b) => {
-          const statusCompare = getClientDisplayStatus(a.status).localeCompare(
-            getClientDisplayStatus(b.status)
-          );
+          const statusCompare =
+            CLIENT_DISPLAY_STATUSES.indexOf(getClientDisplayStatus(a)) -
+            CLIENT_DISPLAY_STATUSES.indexOf(getClientDisplayStatus(b));
           if (statusCompare !== 0) return statusCompare;
-          return comparePlacementDateDistance(a.scheduledDate, b.scheduledDate);
+          return comparePlacementsChronologically(a, b);
         })
       : sortedVisiblePlacements;
-  const availableStatuses = Array.from(
-    new Set(
-      placementsWithSortApplied.map((placement) =>
-        getClientDisplayStatus(placement.status)
-      )
+  const availableStatuses = CLIENT_DISPLAY_STATUSES.filter((status) =>
+    placementsWithSortApplied.some(
+      (placement) => getClientDisplayStatus(placement) === status
     )
-  ).sort((a, b) => a.localeCompare(b));
+  );
   const requestedStatus = searchParams?.status;
   const isKnownStatus = (value: string): value is (typeof availableStatuses)[number] =>
     availableStatuses.some((status) => status === value);
@@ -82,11 +87,9 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
     activeStatusFilter === "All"
       ? placementsWithSortApplied
       : placementsWithSortApplied.filter(
-          (placement) =>
-            getClientDisplayStatus(placement.status) === activeStatusFilter
+          (placement) => getClientDisplayStatus(placement) === activeStatusFilter
         );
-  const billingMeta = extractBillingMeta(campaign.notes);
-  const wantsPeakCopy = billingMeta.wantsPeakCopy ?? true;
+  const wantsPeakCopy = campaign.billingOnboarding?.wantsPeakCopy ?? true;
   const formRows = [
     ...(!isEvergreen &&
     !campaign.complementaryCampaign &&
@@ -132,11 +135,59 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
         </p>
       </div>
 
+      {!isEvergreen && (
+        <section className="mb-10 rounded-xl border border-gray-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {wantsPeakCopy ? "How This Campaign Works" : "Your Copy Workflow"}
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            {wantsPeakCopy
+              ? "Peak is responsible for writing the copy for this campaign."
+              : "Your team is responsible for writing and confirming the copy for this campaign."}
+          </p>
+          <div
+            className={`mt-4 grid gap-3 ${
+              wantsPeakCopy ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4"
+            }`}
+          >
+            {(wantsPeakCopy
+              ? [
+                  "You fill out the onboarding form so we have the information we need.",
+                  "Peak writes the copy and adds it to the portal.",
+                  "We send the draft to you for review.",
+                  "You review the copy, approve it, or request edits.",
+                  "Peak publishes the placement once it is approved.",
+                ]
+              : [
+                  "You fill out the campaign form and confirm the placement details.",
+                  "Your team adds copy directly into each placement in the portal.",
+                  "You confirm the final copy is ready to run.",
+                  "Peak publishes the placement after your copy is approved.",
+                ]
+            ).map((step, index) => (
+              <div
+                key={`${campaign.id}-workflow-${index}`}
+                className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
+                    {index + 1}
+                  </div>
+                  <p className="text-sm leading-6 text-gray-600">{step}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {!isEvergreen && formRows.length > 0 && (
         <section className="mb-10 rounded-xl border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-900">Campaign Forms</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Each form opens on its own page.
+            {wantsPeakCopy
+              ? "Complete these forms first so Peak has the information needed to draft and schedule your placements."
+              : "Complete these forms first, then add your copy directly into each placement in the portal."}
           </p>
           <div className="mt-4 space-y-3">
             {formRows.map((row) => (
@@ -189,13 +240,24 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
             Complete your campaign form
           </p>
           <p className="mt-1 text-sm text-emerald-700">
-            Since your team is providing copy, open the campaign form above to add final copy, links, images, and preferred dates for each placement.
+            Since your team is providing copy, use the campaign form above to add final copy, links, images, and preferred dates for each placement.
           </p>
         </div>
       )}
 
-      {hasVisiblePlacements && wantsPeakCopy && (
+      {hasVisiblePlacements && (
         <div className="space-y-10">
+          <section className="rounded-xl border border-gray-200 bg-white p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">
+              What To Expect
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {wantsPeakCopy
+                ? "Each placement uses plain-English statuses to show whether Peak is waiting on you, actively working, or needs your review before publishing."
+                : "Use the placements below to add your copy, confirm it is final, and keep track of what Peak will publish."}
+            </p>
+          </section>
+
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-700">
               Sort by
@@ -210,7 +272,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
                     : "border-gray-300 text-gray-700 hover:bg-gray-50"
                 }`}
               >
-                Date (closest to today)
+                Date (oldest to newest)
               </Link>
               <Link
                 href={`/portal/${client.portalId}/${campaign.id}?sort=status${activeStatusFilter === "All" ? "" : `&status=${encodeURIComponent(activeStatusFilter)}`}`}
@@ -266,7 +328,8 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
           )}
 
           {visiblePlacements.map((placement, index, arr) => {
-              const displayStatus = getClientDisplayStatus(placement.status);
+              const displayStatus = getClientDisplayStatus(placement);
+              const statusCopy = getClientStatusDescription(placement);
               return (
                 <section key={placement.id}>
                   <div className="mb-4 flex items-center gap-3">
@@ -275,11 +338,19 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
                     </h2>
                     <StatusBadge status={displayStatus} />
                   </div>
-                  <p className="mb-4 text-sm text-gray-500">
+                  <p className="mb-2 text-sm text-gray-500">
                     {placement.publication}
                     {placement.scheduledDate &&
                       ` · Scheduled ${new Date(placement.scheduledDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                   </p>
+                  <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-sm font-medium text-gray-900">
+                      {statusCopy.description}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Next step: {statusCopy.nextStep}
+                    </p>
+                  </div>
 
                   <CopyReview
                     placement={placement}
@@ -297,55 +368,4 @@ export default async function CampaignPage({ params, searchParams }: PageProps) 
       )}
     </div>
   );
-}
-
-function comparePlacementDateDistance(dateA?: string | null, dateB?: string | null) {
-  const a = getSignedDistanceFromToday(dateA);
-  const b = getSignedDistanceFromToday(dateB);
-
-  if (a == null && b == null) return 0;
-  if (a == null) return 1;
-  if (b == null) return -1;
-
-  const distanceDiff = Math.abs(a) - Math.abs(b);
-  if (distanceDiff !== 0) return distanceDiff;
-
-  // For equal distance, prefer today/upcoming over past dates.
-  const aIsUpcoming = a >= 0;
-  const bIsUpcoming = b >= 0;
-  if (aIsUpcoming !== bIsUpcoming) return aIsUpcoming ? -1 : 1;
-
-  return a - b;
-}
-
-function getSignedDistanceFromToday(date?: string | null) {
-  if (!date) return null;
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return parsed.getTime() - todayStart.getTime();
-}
-
-function extractBillingMeta(notes?: string): {
-  representingClient?: boolean;
-  wantsPeakCopy?: boolean;
-} {
-  if (!notes) return {};
-  const start = notes.indexOf("<!-- billing-meta:start -->");
-  const end = notes.indexOf("<!-- billing-meta:end -->");
-  if (start === -1 || end === -1 || end < start) return {};
-
-  const raw = notes
-    .slice(start + "<!-- billing-meta:start -->".length, end)
-    .trim();
-  try {
-    return JSON.parse(raw) as {
-      representingClient?: boolean;
-      wantsPeakCopy?: boolean;
-    };
-  } catch {
-    return {};
-  }
 }

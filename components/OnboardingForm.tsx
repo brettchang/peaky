@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { DateRangeCapacity, OnboardingFormType, Placement } from "@/lib/types";
+import { getPrimaryPlacementAssetUploadError } from "@/lib/placement-asset-validation";
 import {
   getPlacementAvailableCapacityDates,
   getTodayDateKey,
@@ -286,6 +287,14 @@ export function OnboardingForm({
     setSaving(true);
     setError(null);
     try {
+      const placement = placementById.get(placementId);
+      if (placement?.type === "Primary") {
+        const uploadError = getPrimaryPlacementAssetUploadError(file);
+        if (uploadError) {
+          throw new Error(uploadError);
+        }
+      }
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("campaignId", campaignId);

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { getClientByPortalId, getPlacement } from "@/lib/db";
 import { isDashboardRequestAuthenticated } from "@/lib/dashboard-auth";
+import { getPrimaryPlacementAssetUploadError } from "@/lib/placement-asset-validation";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,6 +36,13 @@ export async function POST(req: NextRequest) {
 
       if (!client || !client.campaignIds.includes(campaignId) || !placement) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      if (placement.type === "Primary") {
+        const uploadError = getPrimaryPlacementAssetUploadError(file);
+        if (uploadError) {
+          return NextResponse.json({ error: uploadError }, { status: 400 });
+        }
       }
     } else if (!(await isDashboardRequestAuthenticated(req))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

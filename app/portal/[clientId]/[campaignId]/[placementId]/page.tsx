@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPlacementPageData } from "@/lib/db";
-import { getClientDisplayStatus } from "@/lib/types";
+import { getClientDisplayStatus, getClientStatusDescription } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyReview } from "@/components/CopyReview";
 
@@ -40,7 +40,9 @@ export default async function PlacementPage({ params }: PageProps) {
   }
 
   const { client, campaign, placement } = data;
-  const displayStatus = getClientDisplayStatus(placement.status);
+  const displayStatus = getClientDisplayStatus(placement);
+  const statusCopy = getClientStatusDescription(placement);
+  const placementRequirements = getPlacementRequirements(placement.type);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
@@ -71,6 +73,22 @@ export default async function PlacementPage({ params }: PageProps) {
         </p>
       </div>
 
+      <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 px-5 py-4">
+        <p className="text-sm font-medium text-gray-900">{statusCopy.description}</p>
+        <p className="mt-1 text-sm text-gray-600">
+          Next step: {statusCopy.nextStep}
+        </p>
+      </div>
+
+      {placementRequirements && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-sm font-medium text-amber-900">What to submit</p>
+          <p className="mt-1 text-sm text-amber-800">
+            {placementRequirements}
+          </p>
+        </div>
+      )}
+
       <CopyReview
         placement={placement}
         campaignId={campaign.id}
@@ -78,4 +96,17 @@ export default async function PlacementPage({ params }: PageProps) {
       />
     </div>
   );
+}
+
+function getPlacementRequirements(type: string): string | null {
+  if (type === "Primary") {
+    return "Primary placements should include a 5-8 word headline, about 150 words of body copy, and a feature image.";
+  }
+  if (type === "Secondary") {
+    return "Secondary placements should include a 5-8 word headline and about 75 words of body copy.";
+  }
+  if (type === "Peak Picks") {
+    return "Peak Picks placements should include about 10-15 words of copy.";
+  }
+  return null;
 }

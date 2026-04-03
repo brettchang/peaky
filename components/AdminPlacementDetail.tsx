@@ -27,6 +27,7 @@ import {
   ensureDateOption,
   getAvailableCapacityDates,
   getTodayDateKey,
+  isPastDateKey,
 } from "@/lib/schedule-capacity";
 
 const PLACEMENT_TYPES: PlacementType[] = [
@@ -46,6 +47,17 @@ const CONFLICT_OPTIONS = [
 
 function isPodcastRollType(type: PlacementType): boolean {
   return type === ":30 Pre-Roll" || type === ":30 Mid-Roll";
+}
+
+function getHistoricalScheduledDateState(
+  scheduledDate: string | undefined,
+  todayKey: string
+): { enabled: boolean; value: string } {
+  if (scheduledDate && isPastDateKey(scheduledDate, todayKey)) {
+    return { enabled: true, value: scheduledDate };
+  }
+
+  return { enabled: false, value: "" };
 }
 
 interface AdminPlacementDetailProps {
@@ -112,6 +124,12 @@ export function AdminPlacementDetail({
   const [capacityLoading, setCapacityLoading] = useState(false);
   const [capacityError, setCapacityError] = useState<string | null>(null);
   const todayKey = getTodayDateKey();
+  const [useHistoricalDateOverride, setUseHistoricalDateOverride] = useState(() =>
+    getHistoricalScheduledDateState(placement.scheduledDate, todayKey).enabled
+  );
+  const [historicalScheduledDate, setHistoricalScheduledDate] = useState(() =>
+    getHistoricalScheduledDateState(placement.scheduledDate, todayKey).value
+  );
 
   // Copy editing state
   const [savedCopy, setSavedCopy] = useState(placement.currentCopy);
@@ -123,6 +141,15 @@ export function AdminPlacementDetail({
   useEffect(() => {
     setSavedCopy(placement.currentCopy);
   }, [placement.id, placement.currentCopy]);
+
+  useEffect(() => {
+    const historicalState = getHistoricalScheduledDateState(
+      placement.scheduledDate,
+      todayKey
+    );
+    setUseHistoricalDateOverride(historicalState.enabled);
+    setHistoricalScheduledDate(historicalState.value);
+  }, [placement.id, placement.scheduledDate, todayKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +229,10 @@ export function AdminPlacementDetail({
 
   function handleCancel() {
     setSaveError(null);
+    const historicalState = getHistoricalScheduledDateState(
+      placement.scheduledDate,
+      todayKey
+    );
     setForm({
       name: placement.name,
       type: placement.type,
@@ -218,6 +249,8 @@ export function AdminPlacementDetail({
       logoUrl: placement.logoUrl ?? "",
       notes: placement.notes ?? "",
     });
+    setUseHistoricalDateOverride(historicalState.enabled);
+    setHistoricalScheduledDate(historicalState.value);
     setEditing(false);
   }
 
@@ -228,6 +261,9 @@ export function AdminPlacementDetail({
       form.committedImpressions.trim() === ""
         ? null
         : Number.parseInt(form.committedImpressions, 10);
+    const nextScheduledDate = useHistoricalDateOverride
+      ? historicalScheduledDate
+      : form.scheduledDate;
     try {
       const res = await fetch("/api/update-placement", {
         method: "POST",
@@ -238,8 +274,12 @@ export function AdminPlacementDetail({
           name: form.name,
           type: form.type,
           publication: form.publication,
-          scheduledDate: form.scheduledDate || null,
+          scheduledDate: nextScheduledDate || null,
           scheduledEndDate: form.scheduledEndDate || null,
+          historicalDateOverride:
+            useHistoricalDateOverride && isPastDateKey(nextScheduledDate, todayKey)
+              ? true
+              : undefined,
           interviewScheduled: form.interviewScheduled,
           committedImpressions: Number.isFinite(parsedCommittedImpressions)
             ? parsedCommittedImpressions
@@ -508,7 +548,7 @@ export function AdminPlacementDetail({
                     setForm({ ...form, scheduledDate: e.target.value })
                   }
                   className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                  disabled={capacityLoading}
+                  disabled={capacityLoading || useHistoricalDateOverride}
                 >
                   <option value="">No date</option>
                   {getAvailableDateOptions().length === 0 && (
@@ -524,6 +564,28 @@ export function AdminPlacementDetail({
                 </select>
                 {capacityError && (
                   <p className="mt-1 text-xs text-red-600">{capacityError}</p>
+                )}
+                <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={useHistoricalDateOverride}
+                    onChange={(e) => setUseHistoricalDateOverride(e.target.checked)}
+                  />
+                  Use a historical past date
+                </label>
+                {useHistoricalDateOverride && (
+                  <>
+                    <input
+                      type="date"
+                      value={historicalScheduledDate}
+                      onChange={(e) => setHistoricalScheduledDate(e.target.value)}
+                      className="mt-2 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      Past dates bypass inventory checks. Future dates still use the
+                      availability picker above.
+                    </p>
+                  </>
                 )}
               </div>
               {form.publication === PODCAST_PUBLICATION && (
