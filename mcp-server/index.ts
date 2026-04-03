@@ -965,7 +965,7 @@ function extractContactEmails(campaign: {
   return Array.from(candidates).filter(Boolean);
 }
 
-const app = createMcpExpressApp();
+const app = createMcpExpressApp({ host: HOST });
 
 app.post("/mcp", async (req: Request, res: Response) => {
   if (!isAuthorized(req)) {
