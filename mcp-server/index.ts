@@ -45,6 +45,7 @@ import { buildDashboardTasks } from "../lib/dashboard-tasks";
 const SERVER_NAME = "peak-client-portal-mcp";
 const SERVER_VERSION = "0.1.0";
 const PORT = Number(process.env.PORT ?? 3000);
+const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const MCP_API_KEY = process.env.MCP_API_KEY;
 
 const placementStatuses = [
@@ -1014,7 +1015,11 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
-app.listen(PORT, (error?: Error) => {
+app.get("/", (_req, res) => {
+  res.status(200).send("ok");
+});
+
+app.listen(PORT, HOST, (error?: Error) => {
   if (error) {
     console.error("Failed to start MCP server:", error);
     process.exit(1);
@@ -1024,5 +1029,5 @@ app.listen(PORT, (error?: Error) => {
     console.warn("MCP_API_KEY is not set; MCP endpoint is unauthenticated.");
   }
 
-  console.log(`${SERVER_NAME} listening on port ${PORT}`);
+  console.log(`${SERVER_NAME} listening on ${HOST}:${PORT}`);
 });
