@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@floating-ui/dom": "^1.7.6",
     "@googleworkspace/cli": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.19.0",
     "@tiptap/extension-link": "^3.20.0",
